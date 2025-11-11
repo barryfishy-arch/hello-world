@@ -1,0 +1,1457 @@
+#region Using declarations
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.IO;
+using System.Linq;
+using System.Windows.Media;
+using NinjaTrader.Cbi;
+using NinjaTrader.Data;
+using NinjaTrader.Gui;
+using NinjaTrader.Gui.Tools;
+using NinjaTrader.NinjaScript;
+using NinjaTrader.NinjaScript.DrawingTools;
+using NinjaTrader.NinjaScript.Indicators;
+using NinjaTrader.Core;
+#endregion
+
+namespace NinjaTrader.NinjaScript.Strategies
+{
+    public class Strategy123_HLH_M3 : Strategy
+    {
+        private Swing swingIndicator;
+        private ATR atrIndicator;
+        private SMA smaIndicator;
+        private SMA sma50; // For trend slope detection
+        private EMA ema144;
+        private EMA ema169;
+        private EMA ema34Highs; // EMA of highs for entry filter
+        private EMA ema34Lows;  // EMA of lows for entry filter
+
+        // CSV output
+        private StreamWriter csvWriter;
+        private string csvFilePath;
+
+        // Trade tracking for MFE/MAE
+        private class TradeTracker
+        {
+            public string TradeID;
+            public DateTime EntryTime;
+            public string Direction;
+            public double EntryPrice;
+            public int EntryBar;
+            public double StopPrice;
+            public double TargetPrice;
+
+            // Trend filter values at entry
+            public double EMA144_AtEntry;
+            public double EMA169_AtEntry;
+            public bool TrendFilterMet;
+            public bool M3FilterMet; // M3 MACD/Stoch momentum filter
+            public bool SMA50SlopeMet; // SMA50 slope filter
+
+            // MFE/MAE tracking
+            public double MFE_3Bars;
+            public double MAE_3Bars;
+            public double MFE_6Bars;
+            public double MAE_6Bars;
+            public double MFE_9Bars;
+            public double MAE_9Bars;
+            public double MFE_12Bars;
+            public double MAE_12Bars;
+            public double MFE_15Bars;
+            public double MAE_15Bars;
+
+            public bool IsTracking = true;
+        }
+
+        private List<TradeTracker> activeTrades = new List<TradeTracker>();
+
+        // Track swing points
+        private double lastSwingHigh = 0;
+        private double lastSwingLow = 0;
+        private int lastSwingHighBar = -1;
+        private int lastSwingLowBar = -1;
+
+        // Pattern state tracking
+        private enum PatternState
+        {
+            Tracking,
+            KeyLevelBroken,
+            PullbackConfirmed
+        }
+
+        private PatternState currentStateShort = PatternState.Tracking;
+        private PatternState currentStateLong = PatternState.Tracking;
+
+        // SMA50 slope tracking with tolerance
+        private double prevSma50 = 0;
+        private bool sma50SlopeUp = false;
+        private bool sma50SlopeDown = false;
+
+        // SMA50 direction tolerance tracking
+        private enum SMADirection { Unknown, Up, Down }
+        private SMADirection lastConfirmedSMA50Direction = SMADirection.Unknown;
+        private SMADirection pendingSMA50Direction = SMADirection.Unknown;
+        private int consecutiveBarsInPendingDirection = 0;
+
+        // SHORT pattern tracking (SMA50 turns UP, track highest low L, break DOWN)
+        private double highestLowShort = 0;  // "L" - highest low in uptrend (key support)
+        private int highestLowShortBar = -1;
+        private double highestPriceBeforeBreak = 0; // Highest price before breaking L downward
+        private double lowestPriceBreakout = double.MaxValue; // Lowest during breakout (before pullback)
+        private int lowestBreakoutBarShort = -1; // Bar where lowest was hit
+        private int keyLevelBrokenBarShort = -1;
+        private int pullbackBarShort = -1;
+        private double pullbackHighShort = 0;
+        private int pullbackHighShortBar = -1;
+        private bool hasClosedAboveEMA34High = false; // Track if we've had 1 close above EMA34High
+
+        // LONG pattern tracking (SMA50 turns DOWN, track lowest high H, break UP)
+        private double lowestHighLong = 0; // "H" - lowest high in downtrend (key resistance)
+        private int lowestHighLongBar = -1;
+        private double lowestPriceBeforeBreak = double.MaxValue; // Lowest price before breaking H upward
+        private double highestPriceBreakout = 0; // Highest during breakout (before pullback)
+        private int highestBreakoutBarLong = -1; // Bar where highest was hit
+        private int keyLevelBrokenBarLong = -1;
+        private int pullbackBarLong = -1;
+        private double pullbackLowLong = 0;
+        private int pullbackLowLongBar = -1;
+        private bool hasClosedBelowEMA34Low = false; // Track if we've had 1 close below EMA34Low
+
+        // Visual label counter
+        private int labelCounter = 0;
+        private Queue<string> drawingObjectTags = new Queue<string>();
+        private const int MAX_DRAWING_OBJECTS = 100; // Limit to prevent memory issues
+
+        // M3 Filter System (extracted from TrendContinuationWithMomentumStrategy)
+        private MACD macdM3;
+        private Stochastics stochM3;
+
+        // M3 Phantom bar arrays (20 bars deep)
+        private double[] phantomM3Opens = new double[20];
+        private double[] phantomM3Highs = new double[20];
+        private double[] phantomM3Lows = new double[20];
+        private double[] phantomM3Closes = new double[20];
+        private DateTime[] phantomM3Times = new DateTime[20];
+
+        // M3 Bar change detection
+        private DateTime lastSeenM3Time = DateTime.MinValue;
+
+        // Manual Stochastic calculation for M3 (ring buffers)
+        private double[] fastKValuesM3 = new double[50];
+        private int fastKIndexM3 = 0;
+        private int fastKCountM3 = 0;
+
+        private double[] smoothedKValuesM3 = new double[50];
+        private int smoothedKIndexM3 = 0;
+        private int smoothedKCountM3 = 0;
+
+        // Manual MACD calculation for M3 (ring buffers)
+        private double[] fastEmaValuesM3 = new double[200];
+        private double[] slowEmaValuesM3 = new double[200];
+        private double[] macdLineValuesM3 = new double[200];
+        private double[] signalLineValuesM3 = new double[200];
+        private int macdIndexM3 = 0;
+        private int macdCountM3 = 0;
+
+        // MACD constants for calculation
+        private double constant1; // Fast EMA multiplier: 2.0 / (1 + Fast)
+        private double constant2; // Fast EMA complement: 1 - constant1
+        private double constant3; // Slow EMA multiplier: 2.0 / (1 + Slow)
+        private double constant4; // Slow EMA complement: 1 - constant3
+        private double constant5; // Signal EMA multiplier: 2.0 / (1 + Smooth)
+        private double constant6; // Signal EMA complement: 1 - constant5
+
+        // Current phantom M3 indicator values (updated every M1 close)
+        private double phantomM3StochK = 50.0;
+        private double phantomM3StochD = 50.0;
+        private double phantomM3MacdLine = 0.0;
+        private double phantomM3SignalLine = 0.0;
+
+        protected override void OnStateChange()
+        {
+            if (State == State.SetDefaults)
+            {
+                Description = @"SMA50 Slope-Based Reversal Strategy with Swing Ratio Filter + EMA34 Entry Filter + EMA144/169 Trend Filter + M3 MACD/Stochastic Momentum Filter + MFE/MAE Tracking";
+                Name = "Strategy123_HLH_M3";
+                Calculate = Calculate.OnBarClose;
+                EntriesPerDirection = 1;
+                EntryHandling = EntryHandling.AllEntries;
+                IsExitOnSessionCloseStrategy = true;
+                ExitOnSessionCloseSeconds = 30;
+                IsFillLimitOnTouch = false;
+                MaximumBarsLookBack = MaximumBarsLookBack.TwoHundredFiftySix;
+                OrderFillResolution = OrderFillResolution.Standard;
+                Slippage = 0;
+                StartBehavior = StartBehavior.WaitUntilFlat;
+                TimeInForce = TimeInForce.Gtc;
+                TraceOrders = false;
+                RealtimeErrorHandling = RealtimeErrorHandling.StopCancelClose;
+                StopTargetHandling = StopTargetHandling.PerEntryExecution;
+                BarsRequiredToTrade = 200;
+                IsInstantiatedOnEachOptimizationIteration = true;
+
+                ATRPeriod = 14;
+                ATRPercent = 50;
+                ProfitTargetMultiple = 2.0;
+                MaxSwingRatio = 3000; // Maximum ratio between last swing and breakout leg (%) - very high for testing
+                ATRBufferPercent = 30.0; // EMA34 bounce buffer (% of ATR)
+                MinBarsToTrigger = 1; // Min bars since extreme before entry
+                EnableTrendFilter = true;
+                EnableVisuals = false; // Disabled by default to prevent memory issues
+                EnableM3Filter = false; // Disabled by default (complex intrabar calculations)
+
+                // SMA50 direction tolerance (from TrendContinuationWithMomentumStrategy)
+                SMAFlatThreshold = 0.01; // Ignore slope changes smaller than this
+                SMADirectionConsecutiveBars = 3; // Require 3 consecutive bars to confirm direction change
+            }
+            else if (State == State.Configure)
+            {
+                // Add M3 data series for momentum filter
+                if (EnableM3Filter)
+                {
+                    AddDataSeries(Data.BarsPeriodType.Minute, 3); // M3 - BarsArray[1]
+                }
+            }
+            else if (State == State.DataLoaded)
+            {
+                swingIndicator = Swing(5);
+                atrIndicator = ATR(ATRPeriod);
+                smaIndicator = SMA(5);
+                sma50 = SMA(50); // For trend slope detection
+                ema144 = EMA(144);
+                ema169 = EMA(169);
+                ema34Highs = EMA(High, 34); // EMA of highs for entry filter
+                ema34Lows = EMA(Low, 34);   // EMA of lows for entry filter
+
+                AddChartIndicator(swingIndicator);
+
+                // Initialize M3 indicators and phantom bar system
+                if (EnableM3Filter)
+                {
+                    macdM3 = MACD(BarsArray[1], 5, 20, 30);
+                    stochM3 = Stochastics(BarsArray[1], 3, 5, 2);
+
+                    // Calculate MACD constants for manual calculation
+                    int fast = 5, slow = 20, smooth = 30;
+                    constant1 = 2.0 / (1 + fast);
+                    constant2 = 1 - constant1;
+                    constant3 = 2.0 / (1 + slow);
+                    constant4 = 1 - constant3;
+                    constant5 = 2.0 / (1 + smooth);
+                    constant6 = 1 - constant5;
+
+                    // Initialize phantom bar arrays
+                    for (int i = 0; i < 20; i++)
+                    {
+                        phantomM3Opens[i] = 0;
+                        phantomM3Highs[i] = 0;
+                        phantomM3Lows[i] = double.MaxValue;
+                        phantomM3Closes[i] = 0;
+                        phantomM3Times[i] = DateTime.MinValue;
+                    }
+                }
+
+                // Initialize CSV
+                string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                csvFilePath = Path.Combine(
+                    NinjaTrader.Core.Globals.UserDataDir,
+                    "Strategy123_HLH_M3_" + Instrument.FullName.Replace(" ", "_") + "_" + timestamp + ".csv"
+                );
+
+                csvWriter = new StreamWriter(csvFilePath, false);
+                csvWriter.WriteLine("TradeID,EntryTime,Direction,EntryPrice,StopPrice,TargetPrice," +
+                    "EMA144_AtEntry,EMA169_AtEntry,TrendFilterMet,M3FilterMet,SMA50SlopeMet," +
+                    "MFE_3Bars,MAE_3Bars,MFE_MAE_Ratio_3Bars," +
+                    "MFE_6Bars,MAE_6Bars,MFE_MAE_Ratio_6Bars," +
+                    "MFE_9Bars,MAE_9Bars,MFE_MAE_Ratio_9Bars," +
+                    "MFE_12Bars,MAE_12Bars,MFE_MAE_Ratio_12Bars," +
+                    "MFE_15Bars,MAE_15Bars,MFE_MAE_Ratio_15Bars");
+                csvWriter.Flush();
+            }
+            else if (State == State.Terminated)
+            {
+                // Close CSV
+                if (csvWriter != null)
+                {
+                    csvWriter.Close();
+                    csvWriter = null;
+                    Print("MFE/MAE data saved to: " + csvFilePath);
+                }
+            }
+        }
+
+        protected override void OnBarUpdate()
+        {
+            if (CurrentBar < BarsRequiredToTrade)
+                return;
+
+            // Only process primary bar series (M1)
+            if (BarsInProgress != 0)
+                return;
+
+            // Update M3 phantom bar system on every M1 close
+            if (EnableM3Filter && BarsArray.Length > 1 && CurrentBars[1] >= BarsRequiredToTrade)
+            {
+                UpdateM3PhantomBarOnEveryM1Close();
+            }
+
+            // Track active trades MFE/MAE
+            TrackActiveTrades();
+
+            // Update swing points when they change
+            UpdateSwingPoints();
+
+            // Track SMA50 slope changes
+            UpdateSMA50Slope();
+
+            // Don't process new entries if in position
+            if (Position.MarketPosition != MarketPosition.Flat)
+                return;
+
+            // State machines for both long and short patterns
+            ProcessShortPattern();
+            ProcessLongPattern();
+        }
+
+        private void TrackActiveTrades()
+        {
+            var tradesToRemove = new List<TradeTracker>();
+
+            foreach (var trade in activeTrades)
+            {
+                if (!trade.IsTracking)
+                    continue;
+
+                int barsInTrade = CurrentBar - trade.EntryBar;
+
+                // Calculate MFE/MAE based on direction
+                double currentMFE, currentMAE;
+                if (trade.Direction == "LONG")
+                {
+                    currentMFE = High[0] - trade.EntryPrice;
+                    currentMAE = trade.EntryPrice - Low[0];
+                }
+                else // SHORT
+                {
+                    currentMFE = trade.EntryPrice - Low[0];
+                    currentMAE = High[0] - trade.EntryPrice;
+                }
+
+                // Update at specific bars
+                if (barsInTrade == 3)
+                {
+                    trade.MFE_3Bars = Math.Max(trade.MFE_3Bars, currentMFE);
+                    trade.MAE_3Bars = Math.Max(trade.MAE_3Bars, currentMAE);
+                }
+                else if (barsInTrade == 6)
+                {
+                    trade.MFE_6Bars = Math.Max(trade.MFE_6Bars, currentMFE);
+                    trade.MAE_6Bars = Math.Max(trade.MAE_6Bars, currentMAE);
+                }
+                else if (barsInTrade == 9)
+                {
+                    trade.MFE_9Bars = Math.Max(trade.MFE_9Bars, currentMFE);
+                    trade.MAE_9Bars = Math.Max(trade.MAE_9Bars, currentMAE);
+                }
+                else if (barsInTrade == 12)
+                {
+                    trade.MFE_12Bars = Math.Max(trade.MFE_12Bars, currentMFE);
+                    trade.MAE_12Bars = Math.Max(trade.MAE_12Bars, currentMAE);
+                }
+                else if (barsInTrade >= 15)
+                {
+                    trade.MFE_15Bars = Math.Max(trade.MFE_15Bars, currentMFE);
+                    trade.MAE_15Bars = Math.Max(trade.MAE_15Bars, currentMAE);
+
+                    // Stop tracking and write to CSV
+                    trade.IsTracking = false;
+                    WriteTradeToCSV(trade);
+                    tradesToRemove.Add(trade);
+                }
+            }
+
+            // Remove completed trades
+            foreach (var trade in tradesToRemove)
+            {
+                activeTrades.Remove(trade);
+            }
+        }
+
+        private void WriteTradeToCSV(TradeTracker trade)
+        {
+            if (csvWriter == null)
+                return;
+
+            // Calculate ratios (handle division by zero)
+            double ratio3 = trade.MAE_3Bars > 0 ? trade.MFE_3Bars / trade.MAE_3Bars : 0;
+            double ratio6 = trade.MAE_6Bars > 0 ? trade.MFE_6Bars / trade.MAE_6Bars : 0;
+            double ratio9 = trade.MAE_9Bars > 0 ? trade.MFE_9Bars / trade.MAE_9Bars : 0;
+            double ratio12 = trade.MAE_12Bars > 0 ? trade.MFE_12Bars / trade.MAE_12Bars : 0;
+            double ratio15 = trade.MAE_15Bars > 0 ? trade.MFE_15Bars / trade.MAE_15Bars : 0;
+
+            csvWriter.WriteLine(string.Format("{0},{1},{2},{3:F5},{4:F5},{5:F5},{6:F5},{7:F5},{8},{9},{10}," +
+                "{11:F5},{12:F5},{13:F2}," +
+                "{14:F5},{15:F5},{16:F2}," +
+                "{17:F5},{18:F5},{19:F2}," +
+                "{20:F5},{21:F5},{22:F2}," +
+                "{23:F5},{24:F5},{25:F2}",
+                trade.TradeID, trade.EntryTime.ToString("yyyy-MM-dd HH:mm:ss"), trade.Direction,
+                trade.EntryPrice, trade.StopPrice, trade.TargetPrice,
+                trade.EMA144_AtEntry, trade.EMA169_AtEntry, trade.TrendFilterMet, trade.M3FilterMet, trade.SMA50SlopeMet,
+                trade.MFE_3Bars, trade.MAE_3Bars, ratio3,
+                trade.MFE_6Bars, trade.MAE_6Bars, ratio6,
+                trade.MFE_9Bars, trade.MAE_9Bars, ratio9,
+                trade.MFE_12Bars, trade.MAE_12Bars, ratio12,
+                trade.MFE_15Bars, trade.MAE_15Bars, ratio15));
+            csvWriter.Flush();
+        }
+
+        private bool CheckTrendFilter(string direction)
+        {
+            if (!EnableTrendFilter)
+                return true;
+
+            double price = Close[0];
+            double ema144Val = ema144[0];
+            double ema169Val = ema169[0];
+
+            if (direction == "SHORT")
+            {
+                // Bearish stack: Price < EMA144 < EMA169
+                return price < ema144Val && ema144Val < ema169Val;
+            }
+            else // LONG
+            {
+                // Bullish stack: Price > EMA144 > EMA169
+                return price > ema144Val && ema144Val > ema169Val;
+            }
+        }
+
+        private void AddDrawingObject(string tag, string text, int barsAgo, double yValue, Brush color)
+        {
+            if (!EnableVisuals)
+                return;
+
+            // Safety check: ensure barsAgo is within valid range
+            if (barsAgo < 0 || barsAgo > CurrentBar)
+                return;
+
+            // Remove oldest drawing object if we've hit the limit
+            if (drawingObjectTags.Count >= MAX_DRAWING_OBJECTS)
+            {
+                string oldestTag = drawingObjectTags.Dequeue();
+                RemoveDrawObject(oldestTag);
+            }
+
+            // Add new drawing object with much larger, bold font and closer positioning
+            NinjaTrader.Gui.Tools.SimpleFont largeFont = new NinjaTrader.Gui.Tools.SimpleFont("Arial", 24) { Bold = true };
+            Draw.Text(this, tag, true, text, barsAgo, yValue, 0, color, largeFont,
+                System.Windows.TextAlignment.Center, Brushes.Transparent, Brushes.Transparent, 0);
+            drawingObjectTags.Enqueue(tag);
+        }
+
+        private void UpdateSwingPoints()
+        {
+            // Check for new swing high
+            if (swingIndicator.SwingHigh[0] > 0 && swingIndicator.SwingHigh[0] != lastSwingHigh)
+            {
+                lastSwingHigh = swingIndicator.SwingHigh[0];
+                // Find the actual bar where this high occurred (Swing(5) detects 5 bars later)
+                lastSwingHighBar = CurrentBar - swingIndicator.SwingHighBar(0, 1, 10);
+            }
+
+            // Check for new swing low
+            if (swingIndicator.SwingLow[0] > 0 && swingIndicator.SwingLow[0] != lastSwingLow)
+            {
+                lastSwingLow = swingIndicator.SwingLow[0];
+                // Find the actual bar where this low occurred (Swing(5) detects 5 bars later)
+                lastSwingLowBar = CurrentBar - swingIndicator.SwingLowBar(0, 1, 10);
+            }
+        }
+
+        private void UpdateSMA50Slope()
+        {
+            if (CurrentBar < 1)
+                return;
+
+            double currentSma50 = sma50[0];
+            double previousSma50 = sma50[1];
+
+            // Calculate slope
+            double slope = currentSma50 - previousSma50;
+
+            // Determine current bar direction (ignoring flat within threshold)
+            SMADirection currentBarDirection = SMADirection.Unknown;
+            if (Math.Abs(slope) > SMAFlatThreshold)
+            {
+                currentBarDirection = slope > 0 ? SMADirection.Up : SMADirection.Down;
+            }
+
+            // Only process if we have a non-flat direction for this bar
+            if (currentBarDirection != SMADirection.Unknown)
+            {
+                // If this is the first direction we've established, set it as confirmed
+                if (lastConfirmedSMA50Direction == SMADirection.Unknown)
+                {
+                    lastConfirmedSMA50Direction = currentBarDirection;
+                    sma50SlopeUp = (currentBarDirection == SMADirection.Up);
+                    sma50SlopeDown = (currentBarDirection == SMADirection.Down);
+                    Print("🔵 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SMA50 INITIAL DIRECTION: " + currentBarDirection);
+                }
+                // If current direction matches confirmed direction, reset pending tracking
+                else if (currentBarDirection == lastConfirmedSMA50Direction)
+                {
+                    pendingSMA50Direction = SMADirection.Unknown;
+                    consecutiveBarsInPendingDirection = 0;
+                }
+                else
+                {
+                    // Current bar is opposite to established direction
+                    if (pendingSMA50Direction == currentBarDirection)
+                    {
+                        // Continuing in the pending (opposite) direction
+                        consecutiveBarsInPendingDirection++;
+
+                        // Check if we have enough consecutive bars to confirm direction change
+                        if (consecutiveBarsInPendingDirection >= SMADirectionConsecutiveBars)
+                        {
+                            // Direction change confirmed!
+                            SMADirection oldDirection = lastConfirmedSMA50Direction;
+                            lastConfirmedSMA50Direction = currentBarDirection;
+                            sma50SlopeUp = (currentBarDirection == SMADirection.Up);
+                            sma50SlopeDown = (currentBarDirection == SMADirection.Down);
+
+                            // Reset pending tracking
+                            pendingSMA50Direction = SMADirection.Unknown;
+                            consecutiveBarsInPendingDirection = 0;
+
+                            Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " *** SMA50 DIRECTION CHANGE CONFIRMED: " + oldDirection + " -> " + lastConfirmedSMA50Direction + " (after " + SMADirectionConsecutiveBars + " consecutive bars)");
+                        }
+                    }
+                    else
+                    {
+                        // Starting a new pending direction
+                        pendingSMA50Direction = currentBarDirection;
+                        consecutiveBarsInPendingDirection = 1;
+                    }
+                }
+            }
+            // Flat bars are silently ignored - no print needed
+        }
+
+        #region SHORT Pattern Logic (SMA50 Slope Based)
+
+        private void ProcessShortPattern()
+        {
+            switch (currentStateShort)
+            {
+                case PatternState.Tracking:
+                    TrackHighestLowShort();
+                    break;
+
+                case PatternState.KeyLevelBroken:
+                    CheckForPullbackShort();
+                    break;
+
+                case PatternState.PullbackConfirmed:
+                    CheckForShortEntry();
+                    break;
+            }
+        }
+
+        private void TrackHighestLowShort()
+        {
+            // Only track when SMA50 is sloping UP (uptrend)
+            if (!sma50SlopeUp)
+            {
+                // Reset if SMA50 is not sloping up
+                if (highestLowShort > 0)
+                {
+                    Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: SMA50 no longer sloping UP");
+                    ResetShortPattern();
+                }
+                return;
+            }
+
+            // Phase 1: Check for close above EMA34High (skip MinBarsAboveEMA - just need 1 close)
+            if (Close[0] > ema34Highs[0])
+            {
+                if (!hasClosedAboveEMA34High)
+                {
+                    hasClosedAboveEMA34High = true;
+                    Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 1: Close " + Close[0].ToString("F2") + " > EMA34High " + ema34Highs[0].ToString("F2") + " - Setup ACTIVE");
+                }
+            }
+
+            // Only proceed if we've had the required close
+            if (!hasClosedAboveEMA34High)
+                return;
+
+            // Initialize tracking if not started
+            if (highestLowShort == 0 && lastSwingLow > 0)
+            {
+                highestLowShort = lastSwingLow;
+                highestLowShortBar = lastSwingLowBar;
+                highestPriceBeforeBreak = 0;
+                Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: Started tracking L (highest low) = " + highestLowShort.ToString("F2"));
+            }
+
+            // Update highest low if new swing low is higher
+            if (lastSwingLow > 0 && lastSwingLow > highestLowShort && lastSwingLowBar > highestLowShortBar)
+            {
+                Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: L UPDATED from " + highestLowShort.ToString("F2") + " to " + lastSwingLow.ToString("F2"));
+                highestLowShort = lastSwingLow;
+                highestLowShortBar = lastSwingLowBar;
+                highestPriceBeforeBreak = 0; // Reset tracking
+            }
+
+            // Track highest price BEFORE the L break for ratio calculation
+            if (highestLowShortBar > 0 && CurrentBar > highestLowShortBar)
+            {
+                if (High[0] > highestPriceBeforeBreak)
+                {
+                    highestPriceBeforeBreak = High[0];
+                }
+            }
+
+            // Check if L is broken with close BELOW EMA34Low (not just below L)
+            if (highestLowShort > 0 && Close[0] < highestLowShort)
+            {
+                if (Close[0] < ema34Lows[0])
+                {
+                    Print("🔴 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT BREAK: L " + highestLowShort.ToString("F2") + " broken with Close " + Close[0].ToString("F2") + " < EMA34Low " + ema34Lows[0].ToString("F2"));
+                    currentStateShort = PatternState.KeyLevelBroken;
+                    keyLevelBrokenBarShort = CurrentBar;
+                    lowestPriceBreakout = Low[0]; // Start tracking breakout low
+                    lowestBreakoutBarShort = CurrentBar;
+                }
+                else
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT BREAK REJECTED: Close " + Close[0].ToString("F2") + " < L " + highestLowShort.ToString("F2") + " BUT NOT < EMA34Low " + ema34Lows[0].ToString("F2"));
+                }
+            }
+        }
+
+        private void CheckForPullbackShort()
+        {
+            // Track lowest price during breakout phase (before pullback)
+            if (Low[0] < lowestPriceBreakout)
+            {
+                lowestPriceBreakout = Low[0];
+                lowestBreakoutBarShort = CurrentBar;
+            }
+
+            // Invalidation: SMA50 changes direction
+            if (!sma50SlopeUp)
+            {
+                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED (in pullback phase): SMA50 no longer sloping UP");
+                currentStateShort = PatternState.Tracking;
+                ResetShortPattern();
+                return;
+            }
+
+            // Phase 2: Wait for pullback - bar must TOUCH EMA34Low (Low <= EMA34Low <= High)
+            bool touchingEMA = (Low[0] <= ema34Lows[0]) && (High[0] >= ema34Lows[0]);
+
+            if (touchingEMA)
+            {
+                Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 2 PULLBACK: TOUCH EMA34Low - Low " + Low[0].ToString("F2") + " <= EMA34Low " + ema34Lows[0].ToString("F2") + " <= High " + High[0].ToString("F2"));
+                currentStateShort = PatternState.PullbackConfirmed;
+                pullbackBarShort = CurrentBar;
+                pullbackHighShort = High[0];
+                pullbackHighShortBar = CurrentBar;
+            }
+        }
+
+        private void CheckForShortEntry()
+        {
+            // Track highest high during pullback
+            if (High[0] > pullbackHighShort)
+            {
+                pullbackHighShort = High[0];
+                pullbackHighShortBar = CurrentBar;
+            }
+
+            // Invalidation: SMA50 changes direction
+            if (!sma50SlopeUp)
+            {
+                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED (entry phase): SMA50 no longer sloping UP");
+                currentStateShort = PatternState.Tracking;
+                ResetShortPattern();
+                return;
+            }
+
+            // Phase 3: Entry trigger - EMA34 bounce criteria
+            double atrBuffer = atrIndicator[0] * (ATRBufferPercent / 100.0);
+
+            bool belowSMA5 = Close[0] < (smaIndicator[0] - atrBuffer);
+            bool belowEMA = Close[0] < (ema34Lows[0] - atrBuffer);
+
+            int barsSinceLowest = CurrentBar - lowestBreakoutBarShort;
+            bool minBarsCheck = barsSinceLowest >= MinBarsToTrigger;
+
+            Print("💎 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 3 BOUNCE CHECK:");
+            Print("   Close " + Close[0].ToString("F2") + " < SMA5-Buffer " + (smaIndicator[0] - atrBuffer).ToString("F2") + " = " + belowSMA5);
+            Print("   Close " + Close[0].ToString("F2") + " < EMA34Low-Buffer " + (ema34Lows[0] - atrBuffer).ToString("F2") + " = " + belowEMA);
+            Print("   BarsSinceLowest " + barsSinceLowest + " >= " + MinBarsToTrigger + " = " + minBarsCheck);
+
+            if (belowSMA5 && belowEMA && minBarsCheck)
+            {
+                Print("✅ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 3: ALL CONDITIONS MET - checking filters");
+
+
+                // Calculate swing ratio: (highestBeforeBreak - L) / (L - lowestBreakout)
+                double upswingSize = highestPriceBeforeBreak - highestLowShort;
+                double breakoutSize = highestLowShort - lowestPriceBreakout;
+
+                if (breakoutSize <= 0)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT REJECTED: Invalid breakout size");
+                    currentStateShort = PatternState.Tracking;
+                    ResetShortPattern();
+                    return;
+                }
+
+                double swingRatio = (upswingSize / breakoutSize) * 100.0;
+
+                Print("   Swing Ratio = " + swingRatio.ToString("F1") + "% (Upswing: " + upswingSize.ToString("F2") + " / Breakout: " + breakoutSize.ToString("F2") + ")");
+
+                if (swingRatio > MaxSwingRatio)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT REJECTED: Swing ratio " + swingRatio.ToString("F1") + "% exceeds max " + MaxSwingRatio + "%");
+                    currentStateShort = PatternState.Tracking;
+                    ResetShortPattern();
+                    return;
+                }
+
+                // Check trend filter
+                bool trendFilterMet = CheckTrendFilter("SHORT");
+
+                // Check M3 momentum filter
+                bool m3FilterMet = false;
+                if (EnableM3Filter)
+                {
+                    m3FilterMet = CheckM3MomentumFilters(false); // false = SHORT trade
+                }
+
+                Print("   TrendFilter: " + trendFilterMet + " (Enabled: " + EnableTrendFilter + "), M3Filter: " + m3FilterMet + " (Enabled: " + EnableM3Filter + ")");
+
+                // Calculate stop and target
+                double atrValue = atrIndicator[0];
+                double stopPrice = pullbackHighShort + (atrValue * ATRPercent / 100.0);
+                double stopDistance = stopPrice - Close[0];
+                double targetPrice = Close[0] - (stopDistance * ProfitTargetMultiple);
+
+                // Create trade tracker for CSV (tracks all potential trades)
+                var trade = new TradeTracker
+                {
+                    TradeID = "SHORT_" + CurrentBar,
+                    EntryTime = Time[0],
+                    Direction = "SHORT",
+                    EntryPrice = Close[0],
+                    EntryBar = CurrentBar,
+                    StopPrice = stopPrice,
+                    TargetPrice = targetPrice,
+                    EMA144_AtEntry = ema144[0],
+                    EMA169_AtEntry = ema169[0],
+                    TrendFilterMet = trendFilterMet,
+                    M3FilterMet = m3FilterMet,
+                    SMA50SlopeMet = true // Always true with new logic
+                };
+
+                activeTrades.Add(trade);
+
+                // Only ENTER if both filters met (or disabled)
+                bool trendOK = trendFilterMet || !EnableTrendFilter;
+                bool m3OK = m3FilterMet || !EnableM3Filter;
+
+                Print(Time[0] + " - SHORT Entry Check: EnableTrendFilter=" + EnableTrendFilter + ", TrendFilterMet=" + trendFilterMet + ", TrendOK=" + trendOK + " | EnableM3=" + EnableM3Filter + ", M3Met=" + m3FilterMet + ", M3OK=" + m3OK);
+                Print(Time[0] + " - SHORT EMA Check: Close=" + Close[0] + ", EMA144=" + ema144[0] + ", EMA169=" + ema169[0] + " (Need: Close < EMA144 < EMA169)");
+
+                if (trendOK && m3OK)
+                {
+                    Print(Time[0] + " - SHORT ENTRY EXECUTED at " + Close[0] + " (SwingRatio: " + swingRatio.ToString("F1") + "%)");
+                    // Draw labels ONLY when trade is actually taken
+                    int barsAgoL = CurrentBar - highestLowShortBar;
+                    int barsAgoPullback = CurrentBar - pullbackHighShortBar;
+
+                    AddDrawingObject("LShort_" + (labelCounter++), "L", barsAgoL, highestLowShort, Brushes.Blue);
+                    AddDrawingObject("PShort_" + (labelCounter++), "P", barsAgoPullback, pullbackHighShort, Brushes.Orange);
+
+                    EnterShort("SlopeBreak Short");
+                    SetStopLoss(CalculationMode.Price, stopPrice);
+                    SetProfitTarget(CalculationMode.Price, targetPrice);
+                    Print(Time[0] + " - SHORT ENTRY at " + Close[0]);
+                }
+
+                currentStateShort = PatternState.Tracking;
+                ResetShortPattern();
+            }
+        }
+
+        private void ResetShortPattern()
+        {
+            highestLowShort = 0;
+            highestLowShortBar = -1;
+            highestPriceBeforeBreak = 0;
+            lowestPriceBreakout = double.MaxValue;
+            lowestBreakoutBarShort = -1;
+            keyLevelBrokenBarShort = -1;
+            pullbackBarShort = -1;
+            pullbackHighShort = 0;
+            pullbackHighShortBar = -1;
+            hasClosedAboveEMA34High = false;
+        }
+
+        #endregion
+
+        #region LONG Pattern Logic (SMA50 Slope Based)
+
+        private void ProcessLongPattern()
+        {
+            switch (currentStateLong)
+            {
+                case PatternState.Tracking:
+                    TrackLowestHighLong();
+                    break;
+
+                case PatternState.KeyLevelBroken:
+                    CheckForPullbackLong();
+                    break;
+
+                case PatternState.PullbackConfirmed:
+                    CheckForLongEntry();
+                    break;
+            }
+        }
+
+        private void TrackLowestHighLong()
+        {
+            // Only track when SMA50 is sloping DOWN (downtrend)
+            if (!sma50SlopeDown)
+            {
+                // Reset if SMA50 is not sloping down
+                if (lowestHighLong > 0)
+                {
+                    Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: SMA50 no longer sloping DOWN");
+                    ResetLongPattern();
+                }
+                return;
+            }
+
+            // Phase 1: Check for close below EMA34Low (skip MinBarsAboveEMA - just need 1 close)
+            if (Close[0] < ema34Lows[0])
+            {
+                if (!hasClosedBelowEMA34Low)
+                {
+                    hasClosedBelowEMA34Low = true;
+                    Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 1: Close " + Close[0].ToString("F2") + " < EMA34Low " + ema34Lows[0].ToString("F2") + " - Setup ACTIVE");
+                }
+            }
+
+            // Only proceed if we've had the required close
+            if (!hasClosedBelowEMA34Low)
+                return;
+
+            // Initialize tracking if not started
+            if (lowestHighLong == 0 && lastSwingHigh > 0)
+            {
+                lowestHighLong = lastSwingHigh;
+                lowestHighLongBar = lastSwingHighBar;
+                lowestPriceBeforeBreak = double.MaxValue;
+                Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: Started tracking H (lowest high) = " + lowestHighLong.ToString("F2"));
+            }
+
+            // Update lowest high if new swing high is lower
+            if (lastSwingHigh > 0 && lastSwingHigh < lowestHighLong && lastSwingHighBar > lowestHighLongBar)
+            {
+                Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: H UPDATED from " + lowestHighLong.ToString("F2") + " to " + lastSwingHigh.ToString("F2"));
+                lowestHighLong = lastSwingHigh;
+                lowestHighLongBar = lastSwingHighBar;
+                lowestPriceBeforeBreak = double.MaxValue; // Reset tracking
+            }
+
+            // Track lowest price BEFORE the H break for ratio calculation
+            if (lowestHighLongBar > 0 && CurrentBar > lowestHighLongBar)
+            {
+                if (Low[0] < lowestPriceBeforeBreak)
+                {
+                    lowestPriceBeforeBreak = Low[0];
+                }
+            }
+
+            // Check if H is broken with close ABOVE EMA34High (not just above H)
+            if (lowestHighLong > 0 && Close[0] > lowestHighLong)
+            {
+                if (Close[0] > ema34Highs[0])
+                {
+                    Print("🔴 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG BREAK: H " + lowestHighLong.ToString("F2") + " broken with Close " + Close[0].ToString("F2") + " > EMA34High " + ema34Highs[0].ToString("F2"));
+                    currentStateLong = PatternState.KeyLevelBroken;
+                    keyLevelBrokenBarLong = CurrentBar;
+                    highestPriceBreakout = High[0]; // Start tracking breakout high
+                    highestBreakoutBarLong = CurrentBar;
+                }
+                else
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG BREAK REJECTED: Close " + Close[0].ToString("F2") + " > H " + lowestHighLong.ToString("F2") + " BUT NOT > EMA34High " + ema34Highs[0].ToString("F2"));
+                }
+            }
+        }
+
+        private void CheckForPullbackLong()
+        {
+            // Track highest price during breakout phase (before pullback)
+            if (High[0] > highestPriceBreakout)
+            {
+                highestPriceBreakout = High[0];
+                highestBreakoutBarLong = CurrentBar;
+            }
+
+            // Invalidation: SMA50 changes direction
+            if (!sma50SlopeDown)
+            {
+                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED (in pullback phase): SMA50 no longer sloping DOWN");
+                currentStateLong = PatternState.Tracking;
+                ResetLongPattern();
+                return;
+            }
+
+            // Phase 2: Wait for pullback - bar must TOUCH EMA34High (Low <= EMA34High <= High)
+            bool touchingEMA = (Low[0] <= ema34Highs[0]) && (High[0] >= ema34Highs[0]);
+
+            if (touchingEMA)
+            {
+                Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 2 PULLBACK: TOUCH EMA34High - Low " + Low[0].ToString("F2") + " <= EMA34High " + ema34Highs[0].ToString("F2") + " <= High " + High[0].ToString("F2"));
+                currentStateLong = PatternState.PullbackConfirmed;
+                pullbackBarLong = CurrentBar;
+                pullbackLowLong = Low[0];
+                pullbackLowLongBar = CurrentBar;
+            }
+        }
+
+        private void CheckForLongEntry()
+        {
+            // Track lowest low during pullback
+            if (Low[0] < pullbackLowLong)
+            {
+                pullbackLowLong = Low[0];
+                pullbackLowLongBar = CurrentBar;
+            }
+
+            // Invalidation: SMA50 changes direction
+            if (!sma50SlopeDown)
+            {
+                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED (entry phase): SMA50 no longer sloping DOWN");
+                currentStateLong = PatternState.Tracking;
+                ResetLongPattern();
+                return;
+            }
+
+            // Phase 3: Entry trigger - EMA34 bounce criteria
+            double atrBuffer = atrIndicator[0] * (ATRBufferPercent / 100.0);
+
+            bool aboveSMA5 = Close[0] > (smaIndicator[0] + atrBuffer);
+            bool aboveEMA = Close[0] > (ema34Highs[0] + atrBuffer);
+
+            int barsSinceHighest = CurrentBar - highestBreakoutBarLong;
+            bool minBarsCheck = barsSinceHighest >= MinBarsToTrigger;
+
+            Print("💎 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 3 BOUNCE CHECK:");
+            Print("   Close " + Close[0].ToString("F2") + " > SMA5+Buffer " + (smaIndicator[0] + atrBuffer).ToString("F2") + " = " + aboveSMA5);
+            Print("   Close " + Close[0].ToString("F2") + " > EMA34High+Buffer " + (ema34Highs[0] + atrBuffer).ToString("F2") + " = " + aboveEMA);
+            Print("   BarsSinceHighest " + barsSinceHighest + " >= " + MinBarsToTrigger + " = " + minBarsCheck);
+
+            if (aboveSMA5 && aboveEMA && minBarsCheck)
+            {
+                Print("✅ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 3: ALL CONDITIONS MET - checking filters");
+
+
+                // Calculate swing ratio: (H - lowestBeforeBreak) / (highestBreakout - H)
+                double downswingSize = lowestHighLong - lowestPriceBeforeBreak;
+                double breakoutSize = highestPriceBreakout - lowestHighLong;
+
+                if (breakoutSize <= 0)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG REJECTED: Invalid breakout size");
+                    currentStateLong = PatternState.Tracking;
+                    ResetLongPattern();
+                    return;
+                }
+
+                double swingRatio = (downswingSize / breakoutSize) * 100.0;
+
+                Print("   Swing Ratio = " + swingRatio.ToString("F1") + "% (Downswing: " + downswingSize.ToString("F2") + " / Breakout: " + breakoutSize.ToString("F2") + ")");
+
+                if (swingRatio > MaxSwingRatio)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG REJECTED: Swing ratio " + swingRatio.ToString("F1") + "% exceeds max " + MaxSwingRatio + "%");
+                    currentStateLong = PatternState.Tracking;
+                    ResetLongPattern();
+                    return;
+                }
+
+                // Check trend filter
+                bool trendFilterMet = CheckTrendFilter("LONG");
+
+                // Check M3 momentum filter
+                bool m3FilterMet = false;
+                if (EnableM3Filter)
+                {
+                    m3FilterMet = CheckM3MomentumFilters(true); // true = LONG trade
+                }
+
+                Print("   TrendFilter: " + trendFilterMet + " (Enabled: " + EnableTrendFilter + "), M3Filter: " + m3FilterMet + " (Enabled: " + EnableM3Filter + ")");
+
+                // Calculate stop and target
+                double atrValue = atrIndicator[0];
+                double stopPrice = pullbackLowLong - (atrValue * ATRPercent / 100.0);
+                double stopDistance = Close[0] - stopPrice;
+                double targetPrice = Close[0] + (stopDistance * ProfitTargetMultiple);
+
+                // Create trade tracker for CSV (tracks all potential trades)
+                var trade = new TradeTracker
+                {
+                    TradeID = "LONG_" + CurrentBar,
+                    EntryTime = Time[0],
+                    Direction = "LONG",
+                    EntryPrice = Close[0],
+                    EntryBar = CurrentBar,
+                    StopPrice = stopPrice,
+                    TargetPrice = targetPrice,
+                    EMA144_AtEntry = ema144[0],
+                    EMA169_AtEntry = ema169[0],
+                    TrendFilterMet = trendFilterMet,
+                    M3FilterMet = m3FilterMet,
+                    SMA50SlopeMet = true // Always true with new logic
+                };
+
+                activeTrades.Add(trade);
+
+                // Only ENTER if both filters met (or disabled)
+                bool trendOK = trendFilterMet || !EnableTrendFilter;
+                bool m3OK = m3FilterMet || !EnableM3Filter;
+
+                Print(Time[0] + " - LONG Entry Check: EnableTrendFilter=" + EnableTrendFilter + ", TrendFilterMet=" + trendFilterMet + ", TrendOK=" + trendOK + " | EnableM3=" + EnableM3Filter + ", M3Met=" + m3FilterMet + ", M3OK=" + m3OK);
+                Print(Time[0] + " - LONG EMA Check: Close=" + Close[0] + ", EMA144=" + ema144[0] + ", EMA169=" + ema169[0] + " (Need: Close > EMA144 > EMA169)");
+
+                if (trendOK && m3OK)
+                {
+                    Print(Time[0] + " - LONG ENTRY EXECUTED at " + Close[0] + " (SwingRatio: " + swingRatio.ToString("F1") + "%)");
+                    // Draw labels ONLY when trade is actually taken
+                    int barsAgoH = CurrentBar - lowestHighLongBar;
+                    int barsAgoPullback = CurrentBar - pullbackLowLongBar;
+
+                    AddDrawingObject("HLong_" + (labelCounter++), "H", barsAgoH, lowestHighLong, Brushes.Red);
+                    AddDrawingObject("PLong_" + (labelCounter++), "P", barsAgoPullback, pullbackLowLong, Brushes.Orange);
+
+                    EnterLong("SlopeBreak Long");
+                    SetStopLoss(CalculationMode.Price, stopPrice);
+                    SetProfitTarget(CalculationMode.Price, targetPrice);
+                    Print(Time[0] + " - LONG ENTRY at " + Close[0]);
+                }
+
+                currentStateLong = PatternState.Tracking;
+                ResetLongPattern();
+            }
+        }
+
+        private void ResetLongPattern()
+        {
+            lowestHighLong = 0;
+            lowestHighLongBar = -1;
+            lowestPriceBeforeBreak = double.MaxValue;
+            highestPriceBreakout = 0;
+            highestBreakoutBarLong = -1;
+            keyLevelBrokenBarLong = -1;
+            pullbackBarLong = -1;
+            pullbackLowLong = 0;
+            pullbackLowLongBar = -1;
+            hasClosedBelowEMA34Low = false;
+        }
+
+        #endregion
+
+        #region M3 Phantom Bar System (Extracted from TrendContinuationWithMomentumStrategy)
+
+        // Stochastic parameters (must match Stochastics(BarsArray[1], 3, 5, 2))
+        private int stochK = 5;        // periodK - lookback for high/low
+        private int stochD = 3;        // periodD - SMA period for %D
+        private int stochSmooth = 2;   // smooth - SMA for smoothing %K
+
+        private void UpdateM3PhantomBarOnEveryM1Close()
+        {
+            // Safety check: ensure M3 data series exists and has data
+            if (BarsArray.Length <= 1 || CurrentBars[1] < 0)
+                return;
+
+            DateTime currentM1Time = Time[0];
+            DateTime currentNT8M3Time = Times[1][0];
+            bool m3JustClosed = (lastSeenM3Time != currentNT8M3Time);
+
+            // At each M1 close, check if M3 bar just closed
+            if (m3JustClosed)
+            {
+                // Move everything in array up 1 place: [1]→[2], [2]→[3], etc
+                ShiftPhantomArraysUp();
+
+                // Copy NT8 completed bar at [0] to phantom array at [1]
+                CopyCompletedM3ToPhantom();
+
+                // Location [0] remains empty for now (will be filled as M1s accumulate)
+                ClearFormingBarData();
+
+                // Update tracking
+                lastSeenM3Time = currentNT8M3Time;
+            }
+
+            // Only update phantom [0] with current M1 data if M3 has NOT closed
+            if (!m3JustClosed)
+            {
+                UpdateFormingBarAtZero();
+            }
+
+            // Count available phantom bars for stochastic calculation
+            int availableBars = 0;
+            int startCount = m3JustClosed ? 1 : 0;  // Skip phantom[0] if M3 just closed
+            for (int i = startCount; i < 20; i++)
+            {
+                if (phantomM3Closes[i] != 0) availableBars++;
+                else break;
+            }
+            fastKCountM3 = availableBars;
+
+            // Calculate manual stochastic using phantom bars (exact NT8 formula)
+            CalculateManualStochastic(m3JustClosed);
+
+            // Calculate manual MACD using phantom bars (exact NT8 formula)
+            CalculateManualMACD(m3JustClosed);
+        }
+
+        private void ShiftPhantomArraysUp()
+        {
+            // Move everything up 1 place: [19] gets deleted, [1]→[2], [2]→[3], etc
+            // Start from the top to avoid overwriting data we still need
+            for (int i = 18; i >= 1; i--)
+            {
+                phantomM3Opens[i + 1] = phantomM3Opens[i];
+                phantomM3Highs[i + 1] = phantomM3Highs[i];
+                phantomM3Lows[i + 1] = phantomM3Lows[i];
+                phantomM3Closes[i + 1] = phantomM3Closes[i];
+                phantomM3Times[i + 1] = phantomM3Times[i];
+            }
+        }
+
+        private void CopyCompletedM3ToPhantom()
+        {
+            phantomM3Opens[1] = Opens[1][0];
+            phantomM3Highs[1] = Highs[1][0];
+            phantomM3Lows[1] = Lows[1][0];
+            phantomM3Closes[1] = Closes[1][0];
+            phantomM3Times[1] = Times[1][0];
+        }
+
+        private void ClearFormingBarData()
+        {
+            // Clear phantom [0] - will be filled by UpdateFormingBarAtZero()
+            phantomM3Opens[0] = 0;
+            phantomM3Highs[0] = 0;
+            phantomM3Lows[0] = double.MaxValue;
+            phantomM3Closes[0] = 0;
+            phantomM3Times[0] = DateTime.MinValue;
+        }
+
+        private void UpdateFormingBarAtZero()
+        {
+            // Open: only write if [0] is empty (first M1 after M3 close)
+            if (phantomM3Opens[0] == 0)
+            {
+                phantomM3Opens[0] = Open[0];
+            }
+
+            // High: only update if current M1 high > existing high at [0]
+            if (High[0] > phantomM3Highs[0])
+            {
+                phantomM3Highs[0] = High[0];
+            }
+
+            // Low: only update if current M1 low < existing low at [0]
+            if (Low[0] < phantomM3Lows[0])
+            {
+                phantomM3Lows[0] = Low[0];
+            }
+
+            // Close: always overwrite with current M1 close
+            phantomM3Closes[0] = Close[0];
+
+            // Time: set to expected M3 closing time
+            if (phantomM3Times[0] == DateTime.MinValue)
+            {
+                phantomM3Times[0] = lastSeenM3Time.AddMinutes(3);
+            }
+        }
+
+        private void CalculateManualStochastic(bool m3JustClosed)
+        {
+            // Need at least stochK bars to calculate
+            if (fastKCountM3 < stochK)
+                return;
+
+            int startIndex = m3JustClosed ? 1 : 0;  // Start from [1] if M3 closed, [0] otherwise
+
+            // Find highest high and lowest low over last stochK phantom bars (NT8 formula)
+            double highestHigh = double.MinValue;
+            double lowestLow = double.MaxValue;
+
+            for (int i = startIndex; i < startIndex + stochK && i < 20; i++)
+            {
+                if (phantomM3Highs[i] > highestHigh)
+                    highestHigh = phantomM3Highs[i];
+                if (phantomM3Lows[i] < lowestLow)
+                    lowestLow = phantomM3Lows[i];
+            }
+
+            // Calculate %K using exact NT8 formula
+            double currentClose = phantomM3Closes[startIndex];  // Use close from correct bar
+            double nom = currentClose - lowestLow;
+            double den = highestHigh - lowestLow;
+
+            double fastK;
+            if (Math.Abs(den) < 0.0000001) // Check if denominator is near zero
+            {
+                fastK = fastKCountM3 == 0 ? 50.0 : fastKValuesM3[(fastKIndexM3 - 1 + 50) % 50];
+            }
+            else
+            {
+                fastK = Math.Min(100, Math.Max(0, 100 * nom / den));
+            }
+
+            // Only store %K in ring buffer when M3 closes (not on every M1)
+            if (m3JustClosed)
+            {
+                fastKValuesM3[fastKIndexM3] = fastK;
+                fastKIndexM3 = (fastKIndexM3 + 1) % 50;
+                if (fastKCountM3 < 50) fastKCountM3++;
+            }
+
+            // Calculate smoothed K (what NT8 calls %K)
+            double smoothedK = 0;
+            if (fastKCountM3 >= stochSmooth)
+            {
+                for (int i = 0; i < stochSmooth; i++)
+                {
+                    int idx = (fastKIndexM3 - 1 - i + 50) % 50;
+                    smoothedK += fastKValuesM3[idx];
+                }
+                smoothedK /= stochSmooth;
+            }
+            else
+            {
+                smoothedK = fastK;
+            }
+
+            // Only store smoothed K in ring buffer when M3 closes (not on every M1)
+            if (m3JustClosed)
+            {
+                smoothedKValuesM3[smoothedKIndexM3] = smoothedK;
+                smoothedKIndexM3 = (smoothedKIndexM3 + 1) % 50;
+                if (smoothedKCountM3 < 50) smoothedKCountM3++;
+            }
+
+            // Calculate %D (SMA of smoothed K values over stochD periods)
+            double stochDValue = 0;
+            if (smoothedKCountM3 >= stochD)
+            {
+                for (int i = 0; i < stochD; i++)
+                {
+                    int idx = (smoothedKIndexM3 - 1 - i + 50) % 50;
+                    stochDValue += smoothedKValuesM3[idx];
+                }
+                stochDValue /= stochD;
+            }
+            else
+            {
+                stochDValue = smoothedK;
+            }
+
+            // Update phantom stochastic values
+            phantomM3StochK = smoothedK;
+            phantomM3StochD = stochDValue;
+        }
+
+        private void CalculateManualMACD(bool m3JustClosed)
+        {
+            // Use phantom M3 close data
+            int startIndex = m3JustClosed ? 1 : 0;
+            double currentClose = phantomM3Closes[startIndex];
+
+            if (currentClose == 0) return; // No data yet
+
+            // Calculate EMAs using exact NT8 formula from @MACD.cs
+            double fastEma, slowEma;
+
+            if (macdCountM3 == 0)
+            {
+                // First calculation - use close as seed (same as NT8)
+                fastEma = slowEma = currentClose;
+            }
+            else
+            {
+                // Get previous EMA values for calculation
+                int prevIdx = (macdIndexM3 - 1 + 200) % 200;
+                double prevFastEma = fastEmaValuesM3[prevIdx];
+                double prevSlowEma = slowEmaValuesM3[prevIdx];
+
+                // Calculate new EMAs using exact NT8 formula:
+                // fastEma = constant1 * input + constant2 * prevFastEma
+                // slowEma = constant3 * input + constant4 * prevSlowEma
+                fastEma = constant1 * currentClose + constant2 * prevFastEma;
+                slowEma = constant3 * currentClose + constant4 * prevSlowEma;
+            }
+
+            // Calculate MACD Line = FastEMA - SlowEMA
+            double macdLine = fastEma - slowEma;
+
+            // Only store values in ring buffer when M3 closes
+            if (m3JustClosed)
+            {
+                fastEmaValuesM3[macdIndexM3] = fastEma;
+                slowEmaValuesM3[macdIndexM3] = slowEma;
+                macdLineValuesM3[macdIndexM3] = macdLine;
+            }
+
+            // Calculate Signal Line using exact NT8 formula from @MACD.cs
+            double signalLine;
+            if (macdCountM3 == 0)
+            {
+                // First signal line = 0 (same as NT8: Avg[0] = 0)
+                signalLine = 0;
+            }
+            else
+            {
+                // Get previous signal line for EMA calculation
+                int prevIdx = (macdIndexM3 - 1 + 200) % 200;
+                double prevSignalLine = signalLineValuesM3[prevIdx];
+
+                // Calculate using exact NT8 formula:
+                // macdAvg = constant5 * macd + constant6 * Avg[1]
+                signalLine = constant5 * macdLine + constant6 * prevSignalLine;
+            }
+
+            // Only store signal line when M3 closes
+            if (m3JustClosed)
+            {
+                signalLineValuesM3[macdIndexM3] = signalLine;
+                macdIndexM3 = (macdIndexM3 + 1) % 200;
+                if (macdCountM3 < 200) macdCountM3++;
+            }
+
+            // Update phantom MACD values
+            phantomM3MacdLine = macdLine;
+            phantomM3SignalLine = signalLine;
+        }
+
+        private double GetPreviousM3MacdLine()
+        {
+            if (macdCountM3 < 2) return phantomM3MacdLine;
+            return macdLineValuesM3[(macdIndexM3 - 1 + 200) % 200];
+        }
+
+        private double GetPreviousM3StochK()
+        {
+            if (smoothedKCountM3 < 2) return phantomM3StochK;
+            return smoothedKValuesM3[(smoothedKIndexM3 - 1 + 50) % 50];
+        }
+
+        private bool CheckM3MomentumFilters(bool isLongTrade)
+        {
+            // Use phantom M3 indicator values for accurate intrabar calculations
+            double currentMacd = phantomM3MacdLine;
+            double previousMacd = GetPreviousM3MacdLine();
+            double currentStoch = phantomM3StochK;
+            double previousStoch = GetPreviousM3StochK();
+
+            // Simple slope calculation: current > previous = UP, current < previous = DOWN
+            bool macdAngleOK = isLongTrade ? currentMacd > previousMacd : currentMacd < previousMacd;
+            bool stochAngleOK = isLongTrade ? currentStoch > previousStoch : currentStoch < previousStoch;
+
+            // Waive Stochastic requirement if extreme values (from original logic)
+            if (currentStoch > 80 || currentStoch < 20)
+            {
+                stochAngleOK = true;
+            }
+
+            bool result = macdAngleOK && stochAngleOK;
+
+            return result;
+        }
+
+        #endregion
+
+        protected override void OnPositionUpdate(Position position, double averagePrice, int quantity, MarketPosition marketPosition)
+        {
+            if (marketPosition == MarketPosition.Flat)
+            {
+                currentStateShort = PatternState.Tracking;
+                currentStateLong = PatternState.Tracking;
+                ResetShortPattern();
+                ResetLongPattern();
+            }
+        }
+
+        #region Properties
+        [NinjaScriptProperty]
+        [Range(1, int.MaxValue)]
+        [Display(Name="ATR Period", Order=1, GroupName="Parameters")]
+        public int ATRPeriod { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(1, 500)]
+        [Display(Name="ATR Percent for Stop", Order=2, GroupName="Parameters")]
+        public int ATRPercent { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(0.1, 10.0)]
+        [Display(Name="Profit Target Multiple (R:R)", Order=3, GroupName="Parameters")]
+        public double ProfitTargetMultiple { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(50, 3000)]
+        [Display(Name="Max Swing Ratio (%)", Order=4, GroupName="Parameters")]
+        public int MaxSwingRatio { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(0.0, 100.0)]
+        [Display(Name="ATR Buffer Percent", Order=5, GroupName="Parameters")]
+        public double ATRBufferPercent { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(0, 10)]
+        [Display(Name="Min Bars To Trigger", Order=6, GroupName="Parameters")]
+        public int MinBarsToTrigger { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name="Enable EMA144/169 Trend Filter", Order=7, GroupName="Parameters")]
+        public bool EnableTrendFilter { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name="Enable Visual Markers (H/L/P)", Order=8, GroupName="Parameters")]
+        public bool EnableVisuals { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name="Enable M3 Momentum Filter (MACD+Stoch)", Order=9, GroupName="Parameters")]
+        public bool EnableM3Filter { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name="SMA50 Flat Threshold", Description="Minimum slope to consider SMA50 directional (ignores flat periods)", Order=10, GroupName="Parameters")]
+        public double SMAFlatThreshold { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(1, 10)]
+        [Display(Name="SMA50 Direction Consecutive Bars", Description="Number of consecutive bars required to confirm SMA50 direction change", Order=11, GroupName="Parameters")]
+        public int SMADirectionConsecutiveBars { get; set; }
+        #endregion
+    }
+}
