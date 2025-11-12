@@ -912,7 +912,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 double pullbackSize = pullbackHighShort - lowestPriceBreakout; // Upward pullback
                 double pullbackPercent = (pullbackSize / breakoutLegSize) * 100.0;
 
-                Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 2 PULLBACK: TOUCH EMA34Low");
+                Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 4 PULLBACK: TOUCH EMA34Low");
                 Print("   Breakout Leg: " + highestPriceBeforeBreak.ToString("F5") + " (high before break) -> " + lowestPriceBreakout.ToString("F5") + " (lowest) = " + breakoutLegSize.ToString("F5"));
                 Print("   Pullback: " + lowestPriceBreakout.ToString("F5") + " -> " + pullbackHighShort.ToString("F5") + " = " + pullbackSize.ToString("F5") + " (" + pullbackPercent.ToString("F1") + "%)");
 
@@ -1013,14 +1013,14 @@ namespace NinjaTrader.NinjaScript.Strategies
             int barsSinceLowest = CurrentBar - lowestBreakoutBarShort;
             bool minBarsCheck = barsSinceLowest >= MinBarsToTrigger;
 
-            Print("💎 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 3 BOUNCE CHECK:");
+            Print("💎 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 5 BOUNCE CHECK:");
             Print("   Close " + Close[0].ToString("F2") + " < SMA5-Buffer " + (smaIndicator[0] - atrBuffer).ToString("F2") + " = " + belowSMA5);
             Print("   Close " + Close[0].ToString("F2") + " < EMA34Low-Buffer " + (ema34Lows[0] - atrBuffer).ToString("F2") + " = " + belowEMA);
             Print("   BarsSinceLowest " + barsSinceLowest + " >= " + MinBarsToTrigger + " = " + minBarsCheck);
 
             if (belowSMA5 && belowEMA && minBarsCheck)
             {
-                Print("✅ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 3: ALL CONDITIONS MET - checking filters");
+                Print("✅ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 5: ALL CONDITIONS MET - checking filters");
 
                 // Check trend filter
                 bool trendFilterMet = CheckTrendFilter("SHORT");
@@ -1425,7 +1425,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 double pullbackSize = highestPriceBreakout - pullbackLowLong; // Downward pullback
                 double pullbackPercent = (pullbackSize / breakoutLegSize) * 100.0;
 
-                Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 2 PULLBACK: TOUCH EMA34High");
+                Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 4 PULLBACK: TOUCH EMA34High");
                 Print("   Breakout Leg: " + lowestPriceBeforeBreak.ToString("F5") + " (low before break) -> " + highestPriceBreakout.ToString("F5") + " (highest) = " + breakoutLegSize.ToString("F5"));
                 Print("   Pullback: " + highestPriceBreakout.ToString("F5") + " -> " + pullbackLowLong.ToString("F5") + " = " + pullbackSize.ToString("F5") + " (" + pullbackPercent.ToString("F1") + "%)");
 
@@ -1526,14 +1526,14 @@ namespace NinjaTrader.NinjaScript.Strategies
             int barsSinceHighest = CurrentBar - highestBreakoutBarLong;
             bool minBarsCheck = barsSinceHighest >= MinBarsToTrigger;
 
-            Print("💎 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 3 BOUNCE CHECK:");
+            Print("💎 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 5 BOUNCE CHECK:");
             Print("   Close " + Close[0].ToString("F2") + " > SMA5+Buffer " + (smaIndicator[0] + atrBuffer).ToString("F2") + " = " + aboveSMA5);
             Print("   Close " + Close[0].ToString("F2") + " > EMA34High+Buffer " + (ema34Highs[0] + atrBuffer).ToString("F2") + " = " + aboveEMA);
             Print("   BarsSinceHighest " + barsSinceHighest + " >= " + MinBarsToTrigger + " = " + minBarsCheck);
 
             if (aboveSMA5 && aboveEMA && minBarsCheck)
             {
-                Print("✅ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 3: ALL CONDITIONS MET - checking filters");
+                Print("✅ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 5: ALL CONDITIONS MET - checking filters");
 
                 // Check trend filter
                 bool trendFilterMet = CheckTrendFilter("LONG");
