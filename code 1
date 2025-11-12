@@ -97,7 +97,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private int consecutiveBarsInPendingDirection = 0;
 
         // SHORT pattern tracking (SMA50 turns UP, track highest low L, break DOWN)
-        private double highestLowShort = 0;  // "L" - highest low in uptrend (key support)
+        private double highestLowShort = 0;  // "L" - highest low in uptrend (strongest support)
         private int highestLowShortBar = -1;
         private double highestPriceBeforeBreak = 0; // Highest price before breaking L downward
         private double lowestPriceBreakout = double.MaxValue; // Lowest during breakout (before pullback)
@@ -107,9 +107,15 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double pullbackHighShort = 0;
         private int pullbackHighShortBar = -1;
         private bool hasClosedAboveEMA34High = false; // Track if we've had 1 close above EMA34High
+        private double pullbackHighShortClose = 0; // Close price of the bar that made pullback high
+
+        // Pullback start confirmation tracking (SHORT)
+        private bool shortClosedAbove5SMA = false; // Has closed above 5SMA since break
+        private bool shortSwingLowConfirmed = false; // Has swing indicator confirmed the breakout low
+        private double shortBreakoutEndPrice = 0; // Confirmed end of breakout (swing low price)
 
         // LONG pattern tracking (SMA50 turns DOWN, track lowest high H, break UP)
-        private double lowestHighLong = 0; // "H" - lowest high in downtrend (key resistance)
+        private double lowestHighLong = 0; // "H" - lowest high in downtrend (strongest resistance)
         private int lowestHighLongBar = -1;
         private double lowestPriceBeforeBreak = double.MaxValue; // Lowest price before breaking H upward
         private double highestPriceBreakout = 0; // Highest during breakout (before pullback)
@@ -119,11 +125,17 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double pullbackLowLong = 0;
         private int pullbackLowLongBar = -1;
         private bool hasClosedBelowEMA34Low = false; // Track if we've had 1 close below EMA34Low
+        private double pullbackLowLongClose = 0; // Close price of the bar that made pullback low
+
+        // Pullback start confirmation tracking (LONG)
+        private bool longClosedBelow5SMA = false; // Has closed below 5SMA since break
+        private bool longSwingHighConfirmed = false; // Has swing indicator confirmed the breakout high
+        private double longBreakoutEndPrice = 0; // Confirmed end of breakout (swing high price)
 
         // Visual label counter
         private int labelCounter = 0;
         private Queue<string> drawingObjectTags = new Queue<string>();
-        private const int MAX_DRAWING_OBJECTS = 100; // Limit to prevent memory issues
+        private const int MAX_DRAWING_OBJECTS = 10000; // Limit to prevent memory issues
 
         // M3 Filter System (extracted from TrendContinuationWithMomentumStrategy)
         private MACD macdM3;
@@ -196,7 +208,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ATRPeriod = 14;
                 ATRPercent = 50;
                 ProfitTargetMultiple = 2.0;
-                MaxSwingRatio = 3000; // Maximum ratio between last swing and breakout leg (%) - very high for testing
+                MaxBreakoutPercent = 3000; // Maximum ratio between last swing and breakout leg (%) - very high for testing
+                MinBreakoutPercent = 120; // Minimum breakout size as % of swing (default 120%)
+                MaxPullbackPercent = 50; // Maximum pullback size as % of breakout leg (default 50%)
+                BreakoutEndBufferPercent = 50; // Buffer around breakout end for invalidation (% of ATR, default 50%)
                 ATRBufferPercent = 30.0; // EMA34 bounce buffer (% of ATR)
                 MinBarsToTrigger = 1; // Min bars since extreme before entry
                 EnableTrendFilter = true;
@@ -312,8 +327,38 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
 
             // State machines for both long and short patterns
-            ProcessShortPattern();
-            ProcessLongPattern();
+            // MUTUAL EXCLUSIVITY: Only one pattern can be active at a time
+            // Priority: whichever has data (L or H) runs, the other is blocked
+
+            bool shortHasData = (highestLowShort > 0);
+            bool longHasData = (lowestHighLong > 0);
+
+            if (shortHasData && longHasData)
+            {
+                // ERROR STATE: Both have data - this should never happen
+                Print("ERROR: Both patterns have data! SHORT L=" + highestLowShort + ", LONG H=" + lowestHighLong);
+                Print("       Resetting LONG to resolve conflict");
+                ResetLongPattern();
+                currentStateLong = PatternState.Tracking;
+            }
+
+            if (shortHasData)
+            {
+                // SHORT has priority - only process SHORT
+                ProcessShortPattern();
+            }
+            else if (longHasData)
+            {
+                // LONG has priority - only process LONG
+                ProcessLongPattern();
+            }
+            else
+            {
+                // Neither has data - both can look for setups
+                // Process both, but they have blocking checks inside
+                ProcessShortPattern();
+                ProcessLongPattern();
+            }
         }
 
         private void TrackActiveTrades()
@@ -546,6 +591,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ProcessShortPattern()
         {
+            // CRITICAL: Don't process if LONG has any active data
+            if (lowestHighLong > 0)
+                return;
+
             switch (currentStateShort)
             {
                 case PatternState.Tracking:
@@ -564,51 +613,68 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void TrackHighestLowShort()
         {
-            // Only track when SMA50 is sloping UP (uptrend)
-            if (!sma50SlopeUp)
+            // Don't track if LONG pattern has any active data
+            if (lowestHighLong > 0)
             {
-                // Reset if SMA50 is not sloping up
-                if (highestLowShort > 0)
-                {
-                    Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: SMA50 no longer sloping UP");
-                    ResetShortPattern();
-                }
+                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT BLOCKED: LONG pattern is active (H=" + lowestHighLong.ToString("F2") + ")");
                 return;
             }
 
-            // Phase 1: Check for close above EMA34High (skip MinBarsAboveEMA - just need 1 close)
-            if (Close[0] > ema34Highs[0])
+            // Check if SMA50 changed direction after we started tracking
+            bool smaChangedDirection = (highestLowShort > 0 && !sma50SlopeUp);
+
+            if (smaChangedDirection)
             {
+                // Keep L but skip swing updates - only check for breakouts
+                if (CurrentBar % 10 == 0) // Print occasionally to avoid spam
+                {
+                    Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: SMA50 changed direction, keeping L=" + highestLowShort.ToString("F2") + " but not tracking new higher lows");
+                }
+            }
+            else if (!sma50SlopeUp)
+            {
+                // SMA50 not up and we haven't started tracking yet - do nothing
+                return;
+            }
+            else
+            {
+                // SMA50 is UP and we're actively tracking - do swing updates
+
+                // Phase 1: Check for close above EMA34High (skip MinBarsAboveEMA - just need 1 close)
+                if (Close[0] > ema34Highs[0])
+                {
+                    if (!hasClosedAboveEMA34High)
+                    {
+                        hasClosedAboveEMA34High = true;
+                        Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 1: Close " + Close[0].ToString("F2") + " > EMA34High " + ema34Highs[0].ToString("F2") + " - Setup ACTIVE");
+                    }
+                }
+
+                // Only proceed if we've had the required close
                 if (!hasClosedAboveEMA34High)
+                    return;
+
+                // Initialize tracking if not started
+                if (highestLowShort == 0 && lastSwingLow > 0)
                 {
-                    hasClosedAboveEMA34High = true;
-                    Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 1: Close " + Close[0].ToString("F2") + " > EMA34High " + ema34Highs[0].ToString("F2") + " - Setup ACTIVE");
+                    highestLowShort = lastSwingLow;
+                    highestLowShortBar = lastSwingLowBar;
+                    highestPriceBeforeBreak = 0;
+                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: Started tracking L (highest low) = " + highestLowShort.ToString("F2"));
+                }
+
+                // Update to HIGHER swing lows (highest low = strongest support)
+                if (lastSwingLow > 0 && lastSwingLow > highestLowShort && lastSwingLowBar > highestLowShortBar)
+                {
+                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: L UPDATED from " + highestLowShort.ToString("F2") + " to " + lastSwingLow.ToString("F2") + " (higher low)");
+                    highestLowShort = lastSwingLow;
+                    highestLowShortBar = lastSwingLowBar;
+                    // Reset highestPriceBeforeBreak - track only highs after the new L
+                    highestPriceBeforeBreak = 0;
                 }
             }
 
-            // Only proceed if we've had the required close
-            if (!hasClosedAboveEMA34High)
-                return;
-
-            // Initialize tracking if not started
-            if (highestLowShort == 0 && lastSwingLow > 0)
-            {
-                highestLowShort = lastSwingLow;
-                highestLowShortBar = lastSwingLowBar;
-                highestPriceBeforeBreak = 0;
-                Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: Started tracking L (highest low) = " + highestLowShort.ToString("F2"));
-            }
-
-            // Update highest low if new swing low is higher
-            if (lastSwingLow > 0 && lastSwingLow > highestLowShort && lastSwingLowBar > highestLowShortBar)
-            {
-                Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: L UPDATED from " + highestLowShort.ToString("F2") + " to " + lastSwingLow.ToString("F2"));
-                highestLowShort = lastSwingLow;
-                highestLowShortBar = lastSwingLowBar;
-                highestPriceBeforeBreak = 0; // Reset tracking
-            }
-
-            // Track highest price BEFORE the L break for ratio calculation
+            // Track highest price BEFORE the L break for ratio calculation (always do this)
             if (highestLowShortBar > 0 && CurrentBar > highestLowShortBar)
             {
                 if (High[0] > highestPriceBeforeBreak)
@@ -617,20 +683,51 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
             }
 
-            // Check if L is broken with close BELOW EMA34Low (not just below L)
+            // Check if L is broken with close BELOW EMA34Low (always check, even if SMA changed)
             if (highestLowShort > 0 && Close[0] < highestLowShort)
             {
                 if (Close[0] < ema34Lows[0])
                 {
+                    // Check minimum breakout size
+                    // The upswing is from L to high, breakout move is from high to close (not low)
+                    double upswingSize = highestPriceBeforeBreak - highestLowShort; // L to High (upswing in uptrend)
+                    double breakoutMove = highestPriceBeforeBreak - Close[0]; // High to close (breakdown)
+                    double minBreakoutRequired = upswingSize * (MinBreakoutPercent / 100.0); // e.g., 120% of upswing
+                    double breakoutPercent = (breakoutMove / upswingSize) * 100.0; // As % of upswing
+
+                    if (breakoutMove < minBreakoutRequired)
+                    {
+                        // FAILED BREAK - too weak, update L to new low and continue tracking
+                        Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT BREAK TOO WEAK: Breakout move " + breakoutMove.ToString("F2") + " (" + breakoutPercent.ToString("F1") + "% of upswing) < minimum " + minBreakoutRequired.ToString("F2") + " (" + MinBreakoutPercent + "%)");
+                        Print("   Upswing: " + highestLowShort.ToString("F2") + " (L) -> " + highestPriceBeforeBreak.ToString("F2") + " (high) = " + upswingSize.ToString("F2") + " points");
+                        Print("   Breakout move: " + highestPriceBeforeBreak.ToString("F2") + " (high) -> " + Close[0].ToString("F2") + " (close) = " + breakoutMove.ToString("F2") + " points");
+                        Print("   Updating L from " + highestLowShort.ToString("F2") + " to " + Low[0].ToString("F2") + " (new highest low, even though lower)");
+                        highestLowShort = Low[0];
+                        highestLowShortBar = CurrentBar;
+                        // Don't reset highestPriceBeforeBreak - keep tracking from the highest
+                        return;
+                    }
+
                     Print("🔴 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT BREAK: L " + highestLowShort.ToString("F2") + " broken with Close " + Close[0].ToString("F2") + " < EMA34Low " + ema34Lows[0].ToString("F2"));
+                    Print("   Upswing: " + highestLowShort.ToString("F2") + " (L) -> " + highestPriceBeforeBreak.ToString("F2") + " (high) = " + upswingSize.ToString("F2") + " points");
+                    Print("   Breakout move: " + highestPriceBeforeBreak.ToString("F2") + " (high) -> " + Close[0].ToString("F2") + " (close) = " + breakoutMove.ToString("F2") + " points (" + breakoutPercent.ToString("F1") + "%)");
                     currentStateShort = PatternState.KeyLevelBroken;
                     keyLevelBrokenBarShort = CurrentBar;
                     lowestPriceBreakout = Low[0]; // Start tracking breakout low
                     lowestBreakoutBarShort = CurrentBar;
+
+                    // IMPORTANT: Reset LONG pattern to prevent it from tracking or entering
+                    ResetLongPattern();
+                    currentStateLong = PatternState.Tracking;
                 }
                 else
                 {
+                    // Close < L but NOT < EMA34Low - still update L to new low
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT BREAK REJECTED: Close " + Close[0].ToString("F2") + " < L " + highestLowShort.ToString("F2") + " BUT NOT < EMA34Low " + ema34Lows[0].ToString("F2"));
+                    Print("   Updating L from " + highestLowShort.ToString("F2") + " to " + Low[0].ToString("F2") + " (new highest low, even though lower)");
+                    highestLowShort = Low[0];
+                    highestLowShortBar = CurrentBar;
+                    // Don't reset highestPriceBeforeBreak - keep tracking from the highest
                 }
             }
         }
@@ -642,27 +739,139 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 lowestPriceBreakout = Low[0];
                 lowestBreakoutBarShort = CurrentBar;
+                // Reset pullback tracking when new breakout low is made
+                pullbackHighShort = 0;
+                pullbackHighShortBar = -1;
+                pullbackHighShortClose = 0;
             }
 
-            // Invalidation: SMA50 changes direction
-            if (!sma50SlopeUp)
+            // STEP 1: Check for close ABOVE 5SMA (pullback start condition #1)
+            if (!shortClosedAbove5SMA && Close[0] > smaIndicator[0])
             {
-                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED (in pullback phase): SMA50 no longer sloping UP");
+                shortClosedAbove5SMA = true;
+                Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: Close ABOVE 5SMA confirmed (" + Close[0].ToString("F2") + " > " + smaIndicator[0].ToString("F2") + ")");
+            }
+
+            // STEP 2: Check for swing low confirmation (pullback start condition #2)
+            if (!shortSwingLowConfirmed && lastSwingLow > 0 && lastSwingLowBar >= lowestBreakoutBarShort)
+            {
+                // Swing indicator confirmed a low at or after the breakout
+                shortSwingLowConfirmed = true;
+                shortBreakoutEndPrice = lastSwingLow; // This is the confirmed end of breakout
+                Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: Swing LOW confirmed at " + shortBreakoutEndPrice.ToString("F2") + " (breakout end)");
+            }
+
+            // STEP 3: Check if BOTH conditions are met = pullback start confirmed
+            bool pullbackStartConfirmed = shortClosedAbove5SMA && shortSwingLowConfirmed;
+
+            if (!pullbackStartConfirmed)
+            {
+                // Still waiting for pullback to start
+                return;
+            }
+
+            // Pullback has started - now track pullback extreme and check for invalidation
+            Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: PULLBACK START CONFIRMED (both conditions met)");
+
+            // Validate maximum breakout size (now that breakout end is confirmed)
+            double upswingSize = highestPriceBeforeBreak - highestLowShort;
+            double breakoutSize = highestLowShort - shortBreakoutEndPrice; // From L down to breakout end
+
+            if (breakoutSize <= 0)
+            {
+                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Invalid breakout size");
                 currentStateShort = PatternState.Tracking;
                 ResetShortPattern();
                 return;
             }
+
+            double breakoutRatio = (upswingSize / breakoutSize) * 100.0;
+
+            if (breakoutRatio > MaxBreakoutPercent)
+            {
+                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Breakout ratio " + breakoutRatio.ToString("F1") + "% exceeds max " + MaxBreakoutPercent + "%");
+                Print("   Upswing: " + highestLowShort.ToString("F2") + " -> " + highestPriceBeforeBreak.ToString("F2") + " = " + upswingSize.ToString("F2") + " points");
+                Print("   Breakout: " + highestLowShort.ToString("F2") + " -> " + shortBreakoutEndPrice.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
+                currentStateShort = PatternState.Tracking;
+                ResetShortPattern();
+                return;
+            }
+
+            // Track pullback high
+            if (High[0] > pullbackHighShort)
+            {
+                pullbackHighShort = High[0];
+                pullbackHighShortBar = CurrentBar;
+                pullbackHighShortClose = Close[0];
+            }
+
+            // STEP 4: Check for invalidation - close BELOW breakout end (pullback failed, continued down)
+            double atrBuffer = atrIndicator[0] * (BreakoutEndBufferPercent / 100.0);
+            double invalidationLevel = shortBreakoutEndPrice - atrBuffer;
+
+            if (Close[0] < invalidationLevel)
+            {
+                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Close " + Close[0].ToString("F2") + " < breakout end - buffer " + invalidationLevel.ToString("F2") + " (pullback failed, price continued down)");
+                currentStateShort = PatternState.Tracking;
+                ResetShortPattern();
+                return;
+            }
+
+            // Note: SMA50 direction change does NOT invalidate after L break is confirmed
 
             // Phase 2: Wait for pullback - bar must TOUCH EMA34Low (Low <= EMA34Low <= High)
             bool touchingEMA = (Low[0] <= ema34Lows[0]) && (High[0] >= ema34Lows[0]);
 
             if (touchingEMA)
             {
-                Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 2 PULLBACK: TOUCH EMA34Low - Low " + Low[0].ToString("F2") + " <= EMA34Low " + ema34Lows[0].ToString("F2") + " <= High " + High[0].ToString("F2"));
+                // Safety check: ensure we have valid pullback data
+                if (pullbackHighShort == 0 || pullbackHighShortBar < 0)
+                {
+                    Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT PULLBACK SKIPPED: No pullback data yet");
+                    return;
+                }
+
+                // Calculate pullback size validation
+                // Breakout leg: from highest price BEFORE break down to lowest during breakout
+                double breakoutLegSize = highestPriceBeforeBreak - lowestPriceBreakout; // Downward leg
+                double pullbackSize = pullbackHighShort - lowestPriceBreakout; // Upward pullback
+                double pullbackPercent = (pullbackSize / breakoutLegSize) * 100.0;
+
+                Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 2 PULLBACK: TOUCH EMA34Low");
+                Print("   Breakout Leg: " + highestPriceBeforeBreak.ToString("F5") + " (high before break) -> " + lowestPriceBreakout.ToString("F5") + " (lowest) = " + breakoutLegSize.ToString("F5"));
+                Print("   Pullback: " + lowestPriceBreakout.ToString("F5") + " -> " + pullbackHighShort.ToString("F5") + " = " + pullbackSize.ToString("F5") + " (" + pullbackPercent.ToString("F1") + "%)");
+
+                // Validate pullback size
+                if (pullbackPercent > MaxPullbackPercent)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT PULLBACK REJECTED: Pullback " + pullbackPercent.ToString("F1") + "% exceeds max " + MaxPullbackPercent + "%");
+                    currentStateShort = PatternState.Tracking;
+                    ResetShortPattern();
+                    return;
+                }
+
+                // Validate that pullback high bar closed ABOVE 5SMA
+                int barsAgo = CurrentBar - pullbackHighShortBar;
+                if (barsAgo < 0 || barsAgo >= CurrentBar)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT PULLBACK REJECTED: Invalid bar index");
+                    currentStateShort = PatternState.Tracking;
+                    ResetShortPattern();
+                    return;
+                }
+
+                double sma5AtPullbackHighBar = smaIndicator[barsAgo];
+                if (pullbackHighShortClose <= sma5AtPullbackHighBar)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT PULLBACK REJECTED: Pullback high bar close " + pullbackHighShortClose.ToString("F5") + " NOT > 5SMA " + sma5AtPullbackHighBar.ToString("F5"));
+                    currentStateShort = PatternState.Tracking;
+                    ResetShortPattern();
+                    return;
+                }
+
+                Print("✅ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT PULLBACK CONFIRMED: Size OK (" + pullbackPercent.ToString("F1") + "%), High bar closed above 5SMA");
                 currentStateShort = PatternState.PullbackConfirmed;
                 pullbackBarShort = CurrentBar;
-                pullbackHighShort = High[0];
-                pullbackHighShortBar = CurrentBar;
             }
         }
 
@@ -673,16 +882,23 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 pullbackHighShort = High[0];
                 pullbackHighShortBar = CurrentBar;
+                pullbackHighShortClose = Close[0]; // Update close price
             }
 
-            // Invalidation: SMA50 changes direction
-            if (!sma50SlopeUp)
+            // CONTINUOUSLY validate pullback size (can get deeper after initial EMA touch)
+            double breakoutLegSize = highestPriceBeforeBreak - lowestPriceBreakout;
+            double pullbackSize = pullbackHighShort - lowestPriceBreakout;
+            double pullbackPercent = (pullbackSize / breakoutLegSize) * 100.0;
+
+            if (pullbackPercent > MaxPullbackPercent)
             {
-                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED (entry phase): SMA50 no longer sloping UP");
+                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Pullback grew to " + pullbackPercent.ToString("F1") + "% (exceeds max " + MaxPullbackPercent + "%)");
                 currentStateShort = PatternState.Tracking;
                 ResetShortPattern();
                 return;
             }
+
+            // Note: SMA50 direction change does NOT invalidate after L break is confirmed
 
             // Phase 3: Entry trigger - EMA34 bounce criteria
             double atrBuffer = atrIndicator[0] * (ATRBufferPercent / 100.0);
@@ -701,31 +917,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (belowSMA5 && belowEMA && minBarsCheck)
             {
                 Print("✅ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 3: ALL CONDITIONS MET - checking filters");
-
-
-                // Calculate swing ratio: (highestBeforeBreak - L) / (L - lowestBreakout)
-                double upswingSize = highestPriceBeforeBreak - highestLowShort;
-                double breakoutSize = highestLowShort - lowestPriceBreakout;
-
-                if (breakoutSize <= 0)
-                {
-                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT REJECTED: Invalid breakout size");
-                    currentStateShort = PatternState.Tracking;
-                    ResetShortPattern();
-                    return;
-                }
-
-                double swingRatio = (upswingSize / breakoutSize) * 100.0;
-
-                Print("   Swing Ratio = " + swingRatio.ToString("F1") + "% (Upswing: " + upswingSize.ToString("F2") + " / Breakout: " + breakoutSize.ToString("F2") + ")");
-
-                if (swingRatio > MaxSwingRatio)
-                {
-                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT REJECTED: Swing ratio " + swingRatio.ToString("F1") + "% exceeds max " + MaxSwingRatio + "%");
-                    currentStateShort = PatternState.Tracking;
-                    ResetShortPattern();
-                    return;
-                }
 
                 // Check trend filter
                 bool trendFilterMet = CheckTrendFilter("SHORT");
@@ -773,7 +964,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 if (trendOK && m3OK)
                 {
-                    Print(Time[0] + " - SHORT ENTRY EXECUTED at " + Close[0] + " (SwingRatio: " + swingRatio.ToString("F1") + "%)");
+                    Print(Time[0] + " - SHORT ENTRY EXECUTED at " + Close[0]);
                     // Draw labels ONLY when trade is actually taken
                     int barsAgoL = CurrentBar - highestLowShortBar;
                     int barsAgoPullback = CurrentBar - pullbackHighShortBar;
@@ -804,6 +995,12 @@ namespace NinjaTrader.NinjaScript.Strategies
             pullbackHighShort = 0;
             pullbackHighShortBar = -1;
             hasClosedAboveEMA34High = false;
+            pullbackHighShortClose = 0;
+
+            // Reset pullback start confirmation tracking
+            shortClosedAbove5SMA = false;
+            shortSwingLowConfirmed = false;
+            shortBreakoutEndPrice = 0;
         }
 
         #endregion
@@ -812,6 +1009,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ProcessLongPattern()
         {
+            // CRITICAL: Don't process if SHORT has any active data
+            if (highestLowShort > 0)
+                return;
+
             switch (currentStateLong)
             {
                 case PatternState.Tracking:
@@ -830,51 +1031,68 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void TrackLowestHighLong()
         {
-            // Only track when SMA50 is sloping DOWN (downtrend)
-            if (!sma50SlopeDown)
+            // Don't track if SHORT pattern has any active data
+            if (highestLowShort > 0)
             {
-                // Reset if SMA50 is not sloping down
-                if (lowestHighLong > 0)
-                {
-                    Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: SMA50 no longer sloping DOWN");
-                    ResetLongPattern();
-                }
+                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG BLOCKED: SHORT pattern is active (L=" + highestLowShort.ToString("F2") + ")");
                 return;
             }
 
-            // Phase 1: Check for close below EMA34Low (skip MinBarsAboveEMA - just need 1 close)
-            if (Close[0] < ema34Lows[0])
+            // Check if SMA50 changed direction after we started tracking
+            bool smaChangedDirection = (lowestHighLong > 0 && !sma50SlopeDown);
+
+            if (smaChangedDirection)
             {
+                // Keep H but skip swing updates - only check for breakouts
+                if (CurrentBar % 10 == 0) // Print occasionally to avoid spam
+                {
+                    Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: SMA50 changed direction, keeping H=" + lowestHighLong.ToString("F2") + " but not tracking new lower highs");
+                }
+            }
+            else if (!sma50SlopeDown)
+            {
+                // SMA50 not down and we haven't started tracking yet - do nothing
+                return;
+            }
+            else
+            {
+                // SMA50 is DOWN and we're actively tracking - do swing updates
+
+                // Phase 1: Check for close below EMA34Low (skip MinBarsAboveEMA - just need 1 close)
+                if (Close[0] < ema34Lows[0])
+                {
+                    if (!hasClosedBelowEMA34Low)
+                    {
+                        hasClosedBelowEMA34Low = true;
+                        Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 1: Close " + Close[0].ToString("F2") + " < EMA34Low " + ema34Lows[0].ToString("F2") + " - Setup ACTIVE");
+                    }
+                }
+
+                // Only proceed if we've had the required close
                 if (!hasClosedBelowEMA34Low)
+                    return;
+
+                // Initialize tracking if not started
+                if (lowestHighLong == 0 && lastSwingHigh > 0)
                 {
-                    hasClosedBelowEMA34Low = true;
-                    Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 1: Close " + Close[0].ToString("F2") + " < EMA34Low " + ema34Lows[0].ToString("F2") + " - Setup ACTIVE");
+                    lowestHighLong = lastSwingHigh;
+                    lowestHighLongBar = lastSwingHighBar;
+                    lowestPriceBeforeBreak = double.MaxValue;
+                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: Started tracking H (lowest high) = " + lowestHighLong.ToString("F2") + " | SHORT state: " + currentStateShort);
+                }
+
+                // Update to LOWER swing highs (lowest high = strongest resistance)
+                if (lastSwingHigh > 0 && lastSwingHigh < lowestHighLong && lastSwingHighBar > lowestHighLongBar)
+                {
+                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: H UPDATED from " + lowestHighLong.ToString("F2") + " to " + lastSwingHigh.ToString("F2") + " (lower high)");
+                    lowestHighLong = lastSwingHigh;
+                    lowestHighLongBar = lastSwingHighBar;
+                    // Reset lowestPriceBeforeBreak - track only lows after the new H
+                    lowestPriceBeforeBreak = double.MaxValue;
                 }
             }
 
-            // Only proceed if we've had the required close
-            if (!hasClosedBelowEMA34Low)
-                return;
-
-            // Initialize tracking if not started
-            if (lowestHighLong == 0 && lastSwingHigh > 0)
-            {
-                lowestHighLong = lastSwingHigh;
-                lowestHighLongBar = lastSwingHighBar;
-                lowestPriceBeforeBreak = double.MaxValue;
-                Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: Started tracking H (lowest high) = " + lowestHighLong.ToString("F2"));
-            }
-
-            // Update lowest high if new swing high is lower
-            if (lastSwingHigh > 0 && lastSwingHigh < lowestHighLong && lastSwingHighBar > lowestHighLongBar)
-            {
-                Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: H UPDATED from " + lowestHighLong.ToString("F2") + " to " + lastSwingHigh.ToString("F2"));
-                lowestHighLong = lastSwingHigh;
-                lowestHighLongBar = lastSwingHighBar;
-                lowestPriceBeforeBreak = double.MaxValue; // Reset tracking
-            }
-
-            // Track lowest price BEFORE the H break for ratio calculation
+            // Track lowest price BEFORE the H break for ratio calculation (always do this)
             if (lowestHighLongBar > 0 && CurrentBar > lowestHighLongBar)
             {
                 if (Low[0] < lowestPriceBeforeBreak)
@@ -883,20 +1101,51 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
             }
 
-            // Check if H is broken with close ABOVE EMA34High (not just above H)
+            // Check if H is broken with close ABOVE EMA34High (always check, even if SMA changed)
             if (lowestHighLong > 0 && Close[0] > lowestHighLong)
             {
                 if (Close[0] > ema34Highs[0])
                 {
+                    // Check minimum breakout size
+                    // The downswing is from H to low, breakout move is from low to close (not high)
+                    double downswingSize = lowestHighLong - lowestPriceBeforeBreak; // H to low (downswing in downtrend)
+                    double breakoutMove = Close[0] - lowestPriceBeforeBreak; // Low to close (breakup)
+                    double minBreakoutRequired = downswingSize * (MinBreakoutPercent / 100.0); // e.g., 120% of downswing
+                    double breakoutPercent = (breakoutMove / downswingSize) * 100.0; // As % of downswing
+
+                    if (breakoutMove < minBreakoutRequired)
+                    {
+                        // FAILED BREAK - too weak, update H to new high and continue tracking
+                        Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG BREAK TOO WEAK: Breakout move " + breakoutMove.ToString("F2") + " (" + breakoutPercent.ToString("F1") + "% of downswing) < minimum " + minBreakoutRequired.ToString("F2") + " (" + MinBreakoutPercent + "%)");
+                        Print("   Downswing: " + lowestHighLong.ToString("F2") + " (H) -> " + lowestPriceBeforeBreak.ToString("F2") + " (low) = " + downswingSize.ToString("F2") + " points");
+                        Print("   Breakout move: " + lowestPriceBeforeBreak.ToString("F2") + " (low) -> " + Close[0].ToString("F2") + " (close) = " + breakoutMove.ToString("F2") + " points");
+                        Print("   Updating H from " + lowestHighLong.ToString("F2") + " to " + High[0].ToString("F2") + " (new lowest high, even though higher)");
+                        lowestHighLong = High[0];
+                        lowestHighLongBar = CurrentBar;
+                        // Don't reset lowestPriceBeforeBreak - keep tracking from the lowest
+                        return;
+                    }
+
                     Print("🔴 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG BREAK: H " + lowestHighLong.ToString("F2") + " broken with Close " + Close[0].ToString("F2") + " > EMA34High " + ema34Highs[0].ToString("F2"));
+                    Print("   Downswing: " + lowestHighLong.ToString("F2") + " (H) -> " + lowestPriceBeforeBreak.ToString("F2") + " (low) = " + downswingSize.ToString("F2") + " points");
+                    Print("   Breakout move: " + lowestPriceBeforeBreak.ToString("F2") + " (low) -> " + Close[0].ToString("F2") + " (close) = " + breakoutMove.ToString("F2") + " points (" + breakoutPercent.ToString("F1") + "%)");
                     currentStateLong = PatternState.KeyLevelBroken;
                     keyLevelBrokenBarLong = CurrentBar;
                     highestPriceBreakout = High[0]; // Start tracking breakout high
                     highestBreakoutBarLong = CurrentBar;
+
+                    // IMPORTANT: Reset SHORT pattern to prevent it from tracking or entering
+                    ResetShortPattern();
+                    currentStateShort = PatternState.Tracking;
                 }
                 else
                 {
+                    // Close > H but NOT > EMA34High - still update H to new high
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG BREAK REJECTED: Close " + Close[0].ToString("F2") + " > H " + lowestHighLong.ToString("F2") + " BUT NOT > EMA34High " + ema34Highs[0].ToString("F2"));
+                    Print("   Updating H from " + lowestHighLong.ToString("F2") + " to " + High[0].ToString("F2") + " (new lowest high, even though higher)");
+                    lowestHighLong = High[0];
+                    lowestHighLongBar = CurrentBar;
+                    // Don't reset lowestPriceBeforeBreak - keep tracking from the lowest
                 }
             }
         }
@@ -908,27 +1157,139 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 highestPriceBreakout = High[0];
                 highestBreakoutBarLong = CurrentBar;
+                // Reset pullback tracking when new breakout high is made
+                pullbackLowLong = 0;
+                pullbackLowLongBar = -1;
+                pullbackLowLongClose = 0;
             }
 
-            // Invalidation: SMA50 changes direction
-            if (!sma50SlopeDown)
+            // STEP 1: Check for close BELOW 5SMA (pullback start condition #1)
+            if (!longClosedBelow5SMA && Close[0] < smaIndicator[0])
             {
-                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED (in pullback phase): SMA50 no longer sloping DOWN");
+                longClosedBelow5SMA = true;
+                Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: Close BELOW 5SMA confirmed (" + Close[0].ToString("F2") + " < " + smaIndicator[0].ToString("F2") + ")");
+            }
+
+            // STEP 2: Check for swing high confirmation (pullback start condition #2)
+            if (!longSwingHighConfirmed && lastSwingHigh > 0 && lastSwingHighBar >= highestBreakoutBarLong)
+            {
+                // Swing indicator confirmed a high at or after the breakout
+                longSwingHighConfirmed = true;
+                longBreakoutEndPrice = lastSwingHigh; // This is the confirmed end of breakout
+                Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: Swing HIGH confirmed at " + longBreakoutEndPrice.ToString("F2") + " (breakout end)");
+            }
+
+            // STEP 3: Check if BOTH conditions are met = pullback start confirmed
+            bool pullbackStartConfirmed = longClosedBelow5SMA && longSwingHighConfirmed;
+
+            if (!pullbackStartConfirmed)
+            {
+                // Still waiting for pullback to start
+                return;
+            }
+
+            // Pullback has started - now track pullback extreme and check for invalidation
+            Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: PULLBACK START CONFIRMED (both conditions met)");
+
+            // Validate maximum breakout size (now that breakout end is confirmed)
+            double downswingSize = lowestHighLong - lowestPriceBeforeBreak;
+            double breakoutSize = longBreakoutEndPrice - lowestHighLong; // From H up to breakout end
+
+            if (breakoutSize <= 0)
+            {
+                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Invalid breakout size");
                 currentStateLong = PatternState.Tracking;
                 ResetLongPattern();
                 return;
             }
+
+            double breakoutRatio = (downswingSize / breakoutSize) * 100.0;
+
+            if (breakoutRatio > MaxBreakoutPercent)
+            {
+                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Breakout ratio " + breakoutRatio.ToString("F1") + "% exceeds max " + MaxBreakoutPercent + "%");
+                Print("   Downswing: " + lowestHighLong.ToString("F2") + " -> " + lowestPriceBeforeBreak.ToString("F2") + " = " + downswingSize.ToString("F2") + " points");
+                Print("   Breakout: " + lowestHighLong.ToString("F2") + " -> " + longBreakoutEndPrice.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
+                currentStateLong = PatternState.Tracking;
+                ResetLongPattern();
+                return;
+            }
+
+            // Track pullback low
+            if (Low[0] < pullbackLowLong || pullbackLowLong == 0)
+            {
+                pullbackLowLong = Low[0];
+                pullbackLowLongBar = CurrentBar;
+                pullbackLowLongClose = Close[0];
+            }
+
+            // STEP 4: Check for invalidation - close ABOVE breakout end (pullback failed, continued up)
+            double atrBuffer = atrIndicator[0] * (BreakoutEndBufferPercent / 100.0);
+            double invalidationLevel = longBreakoutEndPrice + atrBuffer;
+
+            if (Close[0] > invalidationLevel)
+            {
+                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Close " + Close[0].ToString("F2") + " > breakout end + buffer " + invalidationLevel.ToString("F2") + " (pullback failed, price continued up)");
+                currentStateLong = PatternState.Tracking;
+                ResetLongPattern();
+                return;
+            }
+
+            // Note: SMA50 direction change does NOT invalidate after H break is confirmed
 
             // Phase 2: Wait for pullback - bar must TOUCH EMA34High (Low <= EMA34High <= High)
             bool touchingEMA = (Low[0] <= ema34Highs[0]) && (High[0] >= ema34Highs[0]);
 
             if (touchingEMA)
             {
-                Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 2 PULLBACK: TOUCH EMA34High - Low " + Low[0].ToString("F2") + " <= EMA34High " + ema34Highs[0].ToString("F2") + " <= High " + High[0].ToString("F2"));
+                // Safety check: ensure we have valid pullback data
+                if (pullbackLowLong == 0 || pullbackLowLongBar < 0)
+                {
+                    Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG PULLBACK SKIPPED: No pullback data yet");
+                    return;
+                }
+
+                // Calculate pullback size validation
+                // Breakout leg: from lowest price BEFORE break up to highest during breakout
+                double breakoutLegSize = highestPriceBreakout - lowestPriceBeforeBreak; // Upward leg
+                double pullbackSize = highestPriceBreakout - pullbackLowLong; // Downward pullback
+                double pullbackPercent = (pullbackSize / breakoutLegSize) * 100.0;
+
+                Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 2 PULLBACK: TOUCH EMA34High");
+                Print("   Breakout Leg: " + lowestPriceBeforeBreak.ToString("F5") + " (low before break) -> " + highestPriceBreakout.ToString("F5") + " (highest) = " + breakoutLegSize.ToString("F5"));
+                Print("   Pullback: " + highestPriceBreakout.ToString("F5") + " -> " + pullbackLowLong.ToString("F5") + " = " + pullbackSize.ToString("F5") + " (" + pullbackPercent.ToString("F1") + "%)");
+
+                // Validate pullback size
+                if (pullbackPercent > MaxPullbackPercent)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG PULLBACK REJECTED: Pullback " + pullbackPercent.ToString("F1") + "% exceeds max " + MaxPullbackPercent + "%");
+                    currentStateLong = PatternState.Tracking;
+                    ResetLongPattern();
+                    return;
+                }
+
+                // Validate that pullback low bar closed BELOW 5SMA
+                int barsAgo = CurrentBar - pullbackLowLongBar;
+                if (barsAgo < 0 || barsAgo >= CurrentBar)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG PULLBACK REJECTED: Invalid bar index");
+                    currentStateLong = PatternState.Tracking;
+                    ResetLongPattern();
+                    return;
+                }
+
+                double sma5AtPullbackLowBar = smaIndicator[barsAgo];
+                if (pullbackLowLongClose >= sma5AtPullbackLowBar)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG PULLBACK REJECTED: Pullback low bar close " + pullbackLowLongClose.ToString("F5") + " NOT < 5SMA " + sma5AtPullbackLowBar.ToString("F5"));
+                    currentStateLong = PatternState.Tracking;
+                    ResetLongPattern();
+                    return;
+                }
+
+                Print("✅ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG PULLBACK CONFIRMED: Size OK (" + pullbackPercent.ToString("F1") + "%), Low bar closed below 5SMA");
                 currentStateLong = PatternState.PullbackConfirmed;
                 pullbackBarLong = CurrentBar;
-                pullbackLowLong = Low[0];
-                pullbackLowLongBar = CurrentBar;
             }
         }
 
@@ -939,16 +1300,23 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 pullbackLowLong = Low[0];
                 pullbackLowLongBar = CurrentBar;
+                pullbackLowLongClose = Close[0]; // Update close price
             }
 
-            // Invalidation: SMA50 changes direction
-            if (!sma50SlopeDown)
+            // CONTINUOUSLY validate pullback size (can get deeper after initial EMA touch)
+            double breakoutLegSize = highestPriceBreakout - lowestPriceBeforeBreak;
+            double pullbackSize = highestPriceBreakout - pullbackLowLong;
+            double pullbackPercent = (pullbackSize / breakoutLegSize) * 100.0;
+
+            if (pullbackPercent > MaxPullbackPercent)
             {
-                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED (entry phase): SMA50 no longer sloping DOWN");
+                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Pullback grew to " + pullbackPercent.ToString("F1") + "% (exceeds max " + MaxPullbackPercent + "%)");
                 currentStateLong = PatternState.Tracking;
                 ResetLongPattern();
                 return;
             }
+
+            // Note: SMA50 direction change does NOT invalidate after H break is confirmed
 
             // Phase 3: Entry trigger - EMA34 bounce criteria
             double atrBuffer = atrIndicator[0] * (ATRBufferPercent / 100.0);
@@ -967,31 +1335,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (aboveSMA5 && aboveEMA && minBarsCheck)
             {
                 Print("✅ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 3: ALL CONDITIONS MET - checking filters");
-
-
-                // Calculate swing ratio: (H - lowestBeforeBreak) / (highestBreakout - H)
-                double downswingSize = lowestHighLong - lowestPriceBeforeBreak;
-                double breakoutSize = highestPriceBreakout - lowestHighLong;
-
-                if (breakoutSize <= 0)
-                {
-                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG REJECTED: Invalid breakout size");
-                    currentStateLong = PatternState.Tracking;
-                    ResetLongPattern();
-                    return;
-                }
-
-                double swingRatio = (downswingSize / breakoutSize) * 100.0;
-
-                Print("   Swing Ratio = " + swingRatio.ToString("F1") + "% (Downswing: " + downswingSize.ToString("F2") + " / Breakout: " + breakoutSize.ToString("F2") + ")");
-
-                if (swingRatio > MaxSwingRatio)
-                {
-                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG REJECTED: Swing ratio " + swingRatio.ToString("F1") + "% exceeds max " + MaxSwingRatio + "%");
-                    currentStateLong = PatternState.Tracking;
-                    ResetLongPattern();
-                    return;
-                }
 
                 // Check trend filter
                 bool trendFilterMet = CheckTrendFilter("LONG");
@@ -1039,7 +1382,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 if (trendOK && m3OK)
                 {
-                    Print(Time[0] + " - LONG ENTRY EXECUTED at " + Close[0] + " (SwingRatio: " + swingRatio.ToString("F1") + "%)");
+                    Print(Time[0] + " - LONG ENTRY EXECUTED at " + Close[0]);
                     // Draw labels ONLY when trade is actually taken
                     int barsAgoH = CurrentBar - lowestHighLongBar;
                     int barsAgoPullback = CurrentBar - pullbackLowLongBar;
@@ -1070,6 +1413,12 @@ namespace NinjaTrader.NinjaScript.Strategies
             pullbackLowLong = 0;
             pullbackLowLongBar = -1;
             hasClosedBelowEMA34Low = false;
+            pullbackLowLongClose = 0;
+
+            // Reset pullback start confirmation tracking
+            longClosedBelow5SMA = false;
+            longSwingHighConfirmed = false;
+            longBreakoutEndPrice = 0;
         }
 
         #endregion
@@ -1419,38 +1768,53 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         [NinjaScriptProperty]
         [Range(50, 3000)]
-        [Display(Name="Max Swing Ratio (%)", Order=4, GroupName="Parameters")]
-        public int MaxSwingRatio { get; set; }
+        [Display(Name="Max Breakout Percent (%)", Order=4, GroupName="Parameters")]
+        public int MaxBreakoutPercent { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(100, 500)]
+        [Display(Name="Min Breakout Percent (%)", Description="Minimum breakout size as % of swing to confirm break (default 120%)", Order=5, GroupName="Parameters")]
+        public int MinBreakoutPercent { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(10, 200)]
+        [Display(Name="Max Pullback Percent", Description="Maximum pullback size as % of breakout leg (default 50%)", Order=6, GroupName="Parameters")]
+        public int MaxPullbackPercent { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(0, 200)]
+        [Display(Name="Breakout End Buffer Percent", Description="ATR buffer around breakout end for invalidation (default 50%)", Order=7, GroupName="Parameters")]
+        public int BreakoutEndBufferPercent { get; set; }
 
         [NinjaScriptProperty]
         [Range(0.0, 100.0)]
-        [Display(Name="ATR Buffer Percent", Order=5, GroupName="Parameters")]
+        [Display(Name="ATR Buffer Percent", Order=8, GroupName="Parameters")]
         public double ATRBufferPercent { get; set; }
 
         [NinjaScriptProperty]
         [Range(0, 10)]
-        [Display(Name="Min Bars To Trigger", Order=6, GroupName="Parameters")]
+        [Display(Name="Min Bars To Trigger", Order=9, GroupName="Parameters")]
         public int MinBarsToTrigger { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name="Enable EMA144/169 Trend Filter", Order=7, GroupName="Parameters")]
+        [Display(Name="Enable EMA144/169 Trend Filter", Order=10, GroupName="Parameters")]
         public bool EnableTrendFilter { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name="Enable Visual Markers (H/L/P)", Order=8, GroupName="Parameters")]
+        [Display(Name="Enable Visual Markers (H/L/P)", Order=11, GroupName="Parameters")]
         public bool EnableVisuals { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name="Enable M3 Momentum Filter (MACD+Stoch)", Order=9, GroupName="Parameters")]
+        [Display(Name="Enable M3 Momentum Filter (MACD+Stoch)", Order=12, GroupName="Parameters")]
         public bool EnableM3Filter { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name="SMA50 Flat Threshold", Description="Minimum slope to consider SMA50 directional (ignores flat periods)", Order=10, GroupName="Parameters")]
+        [Display(Name="SMA50 Flat Threshold", Description="Minimum slope to consider SMA50 directional (ignores flat periods)", Order=13, GroupName="Parameters")]
         public double SMAFlatThreshold { get; set; }
 
         [NinjaScriptProperty]
         [Range(1, 10)]
-        [Display(Name="SMA50 Direction Consecutive Bars", Description="Number of consecutive bars required to confirm SMA50 direction change", Order=11, GroupName="Parameters")]
+        [Display(Name="SMA50 Direction Consecutive Bars", Description="Number of consecutive bars required to confirm SMA50 direction change", Order=14, GroupName="Parameters")]
         public int SMADirectionConsecutiveBars { get; set; }
         #endregion
     }
