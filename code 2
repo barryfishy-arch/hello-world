@@ -857,7 +857,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: PULLBACK START CONFIRMED (both conditions met)");
 
             // Validate maximum breakout size (now that breakout end is confirmed)
-            double upswingSize = highestPriceBeforeBreak - highestLowShort;
             double breakoutSize = highestPriceBeforeBreak - shortBreakoutEndPrice; // From high before break down to breakout end
 
             if (breakoutSize <= 0)
@@ -873,12 +872,12 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            double breakoutRatio = (breakoutSize / upswingSize) * 100.0;
+            double breakoutRatio = (breakoutSize / establishedUpswingSize) * 100.0;
 
             if (breakoutRatio > MaxBreakoutPercent)
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Breakout ratio " + breakoutRatio.ToString("F1") + "% exceeds max " + MaxBreakoutPercent + "%");
-                Print("   Upswing: " + highestLowShort.ToString("F2") + " -> " + highestPriceBeforeBreak.ToString("F2") + " = " + upswingSize.ToString("F2") + " points");
+                Print("   Upswing (from REAL L): " + establishedUpswingSize.ToString("F2") + " points");
                 Print("   Breakout: " + highestPriceBeforeBreak.ToString("F2") + " -> " + shortBreakoutEndPrice.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
 
                 // Draw marker and info box on chart
@@ -1420,7 +1419,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: PULLBACK START CONFIRMED (both conditions met)");
 
             // Validate maximum breakout size (now that breakout end is confirmed)
-            double downswingSize = lowestHighLong - lowestPriceBeforeBreak;
             double breakoutSize = longBreakoutEndPrice - lowestPriceBeforeBreak; // From low before break up to breakout end
 
             if (breakoutSize <= 0)
@@ -1436,12 +1434,12 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            double breakoutRatio = (breakoutSize / downswingSize) * 100.0;
+            double breakoutRatio = (breakoutSize / establishedDownswingSize) * 100.0;
 
             if (breakoutRatio > MaxBreakoutPercent)
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Breakout ratio " + breakoutRatio.ToString("F1") + "% exceeds max " + MaxBreakoutPercent + "%");
-                Print("   Downswing: " + lowestHighLong.ToString("F2") + " -> " + lowestPriceBeforeBreak.ToString("F2") + " = " + downswingSize.ToString("F2") + " points");
+                Print("   Downswing (from REAL H): " + establishedDownswingSize.ToString("F2") + " points");
                 Print("   Breakout: " + lowestPriceBeforeBreak.ToString("F2") + " -> " + longBreakoutEndPrice.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
 
                 // Draw marker and info box on chart
