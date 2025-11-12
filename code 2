@@ -782,8 +782,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("   → Treating as failed breakout, adjusting L and returning to Phase 2");
 
                 // Draw marker and info box on chart
-                Draw.Diamond(this, "ShortInvalidP3Mark_" + CurrentBar, false, 0, High[0], Brushes.Red);
-                Draw.Text(this, "ShortInvalidP3_" + CurrentBar, "❌ SHORT Phase 3 INVALID\nBreakout begun - waiting for 34EMA confirm\nPrice took out H (" + highestPriceBeforeBreak.ToString("F2") + ")\nbefore close below 34EMA", 0, High[0] + (4 * TickSize), Brushes.Red);
+                Draw.Diamond(this, "ShortInvalidP3Mark_" + CurrentBar, false, 0, High[0], Brushes.Black);
+                Draw.Text(this, "ShortInvalidP3_" + CurrentBar, "❌ SHORT Phase 3 INVALID\nBreakout begun - waiting for 34EMA confirm\nPrice took out H (" + highestPriceBeforeBreak.ToString("F2") + ")\nbefore close below 34EMA", 0, High[0] + (4 * TickSize), Brushes.Black);
 
                 // Adjust L to the low of this breakout attempt and return to Phase 2
                 highestLowShort = lowestPriceBreakout;
@@ -862,8 +862,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Invalid breakout size");
 
                 // Draw marker and info box on chart
-                Draw.Diamond(this, "ShortInvalidSizeMark_" + CurrentBar, false, 0, High[0], Brushes.Red);
-                Draw.Text(this, "ShortInvalidSize_" + CurrentBar, "❌ SHORT Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nInvalid breakout size calculation\n(L to breakout end <= 0)", 0, High[0] + (4 * TickSize), Brushes.Red);
+                Draw.Diamond(this, "ShortInvalidSizeMark_" + CurrentBar, false, 0, High[0], Brushes.Black);
+                Draw.Text(this, "ShortInvalidSize_" + CurrentBar, "❌ SHORT Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nInvalid breakout size calculation\n(L to breakout end <= 0)", 0, High[0] + (4 * TickSize), Brushes.Black);
 
                 currentStateShort = PatternState.DirectionSought;
                 ResetShortPattern();
@@ -879,8 +879,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("   Breakout: " + highestLowShort.ToString("F2") + " -> " + shortBreakoutEndPrice.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
 
                 // Draw marker and info box on chart
-                Draw.Diamond(this, "ShortInvalidRatioMark_" + CurrentBar, false, 0, High[0], Brushes.Red);
-                Draw.Text(this, "ShortInvalidRatio_" + CurrentBar, "❌ SHORT Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nBreakout too large: " + breakoutRatio.ToString("F1") + "%\n(max: " + MaxBreakoutPercent + "%)", 0, High[0] + (4 * TickSize), Brushes.Red);
+                Draw.Diamond(this, "ShortInvalidRatioMark_" + CurrentBar, false, 0, High[0], Brushes.Black);
+                Draw.Text(this, "ShortInvalidRatio_" + CurrentBar, "❌ SHORT Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nBreakout too large: " + breakoutRatio.ToString("F1") + "%\n(max: " + MaxBreakoutPercent + "%)", 0, High[0] + (4 * TickSize), Brushes.Black);
 
                 currentStateShort = PatternState.DirectionSought;
                 ResetShortPattern();
@@ -984,8 +984,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Pullback grew to " + pullbackPercent.ToString("F1") + "% (exceeds max " + MaxPullbackPercent + "%)");
 
                 // Draw marker and info box on chart
-                Draw.Diamond(this, "ShortInvalidPbMaxMark_" + CurrentBar, false, 0, High[0], Brushes.Red);
-                Draw.Text(this, "ShortInvalidPbMax_" + CurrentBar, "❌ SHORT Phase 5 INVALID\nPullback in progress - waiting for entry\nPullback too large: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)", 0, High[0] + (4 * TickSize), Brushes.Red);
+                Draw.Diamond(this, "ShortInvalidPbMaxMark_" + CurrentBar, false, 0, High[0], Brushes.Black);
+                Draw.Text(this, "ShortInvalidPbMax_" + CurrentBar, "❌ SHORT Phase 5 INVALID\nPullback in progress - waiting for entry\nPullback too large: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)", 0, High[0] + (4 * TickSize), Brushes.Black);
 
                 currentStateShort = PatternState.DirectionSought;
                 ResetShortPattern();
@@ -1003,8 +1003,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 5 INVALIDATED: Too many closes above 34EMA of highs (" + consecutiveClosesAbove34EMAHighShort + " > " + MaxClosesBeyond34EMA + ")");
 
                     // Draw marker and info box on chart
-                    Draw.Diamond(this, "ShortInvalidP5ClosesMark_" + CurrentBar, false, 0, High[0], Brushes.Red);
-                    Draw.Text(this, "ShortInvalidP5Closes_" + CurrentBar, "❌ SHORT Phase 5 INVALID\nPullback in progress - waiting for entry\nToo many consecutive closes above 34EMA\n(" + consecutiveClosesAbove34EMAHighShort + " > max " + MaxClosesBeyond34EMA + ")", 0, High[0] + (4 * TickSize), Brushes.Red);
+                    Draw.Diamond(this, "ShortInvalidP5ClosesMark_" + CurrentBar, false, 0, High[0], Brushes.Black);
+                    Draw.Text(this, "ShortInvalidP5Closes_" + CurrentBar, "❌ SHORT Phase 5 INVALID\nPullback in progress - waiting for entry\nToo many consecutive closes above 34EMA\n(" + consecutiveClosesAbove34EMAHighShort + " > max " + MaxClosesBeyond34EMA + ")", 0, High[0] + (4 * TickSize), Brushes.Black);
 
                     currentStateShort = PatternState.DirectionSought;
                     ResetShortPattern();
@@ -1023,8 +1023,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 5 INVALIDATED: 5SMA (" + smaIndicator[0].ToString("F2") + ") closed above 34EMA of highs (" + ema34Highs[0].ToString("F2") + ")");
 
                 // Draw marker and info box on chart
-                Draw.Diamond(this, "ShortInvalidP5SMAMark_" + CurrentBar, false, 0, High[0], Brushes.Red);
-                Draw.Text(this, "ShortInvalidP5SMA_" + CurrentBar, "❌ SHORT Phase 5 INVALID\nPullback in progress - waiting for entry\n5SMA crossed above 34EMA of highs\n5SMA: " + smaIndicator[0].ToString("F2") + " > EMA34: " + ema34Highs[0].ToString("F2"), 0, High[0] + (4 * TickSize), Brushes.Red);
+                Draw.Diamond(this, "ShortInvalidP5SMAMark_" + CurrentBar, false, 0, High[0], Brushes.Black);
+                Draw.Text(this, "ShortInvalidP5SMA_" + CurrentBar, "❌ SHORT Phase 5 INVALID\nPullback in progress - waiting for entry\n5SMA crossed above 34EMA of highs\n5SMA: " + smaIndicator[0].ToString("F2") + " > EMA34: " + ema34Highs[0].ToString("F2"), 0, High[0] + (4 * TickSize), Brushes.Black);
 
                 currentStateShort = PatternState.DirectionSought;
                 ResetShortPattern();
@@ -1323,8 +1323,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("   → Treating as failed breakout, adjusting H and returning to Phase 2");
 
                 // Draw marker and info box on chart
-                Draw.Diamond(this, "LongInvalidP3Mark_" + CurrentBar, false, 0, Low[0], Brushes.Red);
-                Draw.Text(this, "LongInvalidP3_" + CurrentBar, "❌ LONG Phase 3 INVALID\nBreakout begun - waiting for 34EMA confirm\nPrice took out L (" + lowestPriceBeforeBreak.ToString("F2") + ")\nbefore close above 34EMA", 0, Low[0] - (4 * TickSize), Brushes.Red);
+                Draw.Diamond(this, "LongInvalidP3Mark_" + CurrentBar, false, 0, Low[0], Brushes.Black);
+                Draw.Text(this, "LongInvalidP3_" + CurrentBar, "❌ LONG Phase 3 INVALID\nBreakout begun - waiting for 34EMA confirm\nPrice took out L (" + lowestPriceBeforeBreak.ToString("F2") + ")\nbefore close above 34EMA", 0, Low[0] - (4 * TickSize), Brushes.Black);
 
                 // Adjust H to the high of this breakout attempt and return to Phase 2
                 lowestHighLong = highestPriceBreakout;
@@ -1403,8 +1403,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Invalid breakout size");
 
                 // Draw marker and info box on chart
-                Draw.Diamond(this, "LongInvalidSizeMark_" + CurrentBar, false, 0, Low[0], Brushes.Red);
-                Draw.Text(this, "LongInvalidSize_" + CurrentBar, "❌ LONG Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nInvalid breakout size calculation\n(H to breakout end <= 0)", 0, Low[0] - (4 * TickSize), Brushes.Red);
+                Draw.Diamond(this, "LongInvalidSizeMark_" + CurrentBar, false, 0, Low[0], Brushes.Black);
+                Draw.Text(this, "LongInvalidSize_" + CurrentBar, "❌ LONG Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nInvalid breakout size calculation\n(H to breakout end <= 0)", 0, Low[0] - (4 * TickSize), Brushes.Black);
 
                 currentStateLong = PatternState.DirectionSought;
                 ResetLongPattern();
@@ -1420,8 +1420,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("   Breakout: " + lowestHighLong.ToString("F2") + " -> " + longBreakoutEndPrice.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
 
                 // Draw marker and info box on chart
-                Draw.Diamond(this, "LongInvalidRatioMark_" + CurrentBar, false, 0, Low[0], Brushes.Red);
-                Draw.Text(this, "LongInvalidRatio_" + CurrentBar, "❌ LONG Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nBreakout too large: " + breakoutRatio.ToString("F1") + "%\n(max: " + MaxBreakoutPercent + "%)", 0, Low[0] - (4 * TickSize), Brushes.Red);
+                Draw.Diamond(this, "LongInvalidRatioMark_" + CurrentBar, false, 0, Low[0], Brushes.Black);
+                Draw.Text(this, "LongInvalidRatio_" + CurrentBar, "❌ LONG Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nBreakout too large: " + breakoutRatio.ToString("F1") + "%\n(max: " + MaxBreakoutPercent + "%)", 0, Low[0] - (4 * TickSize), Brushes.Black);
 
                 currentStateLong = PatternState.DirectionSought;
                 ResetLongPattern();
@@ -1525,8 +1525,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Pullback grew to " + pullbackPercent.ToString("F1") + "% (exceeds max " + MaxPullbackPercent + "%)");
 
                 // Draw marker and info box on chart
-                Draw.Diamond(this, "LongInvalidPbMaxMark_" + CurrentBar, false, 0, Low[0], Brushes.Red);
-                Draw.Text(this, "LongInvalidPbMax_" + CurrentBar, "❌ LONG Phase 5 INVALID\nPullback in progress - waiting for entry\nPullback too large: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)", 0, Low[0] - (4 * TickSize), Brushes.Red);
+                Draw.Diamond(this, "LongInvalidPbMaxMark_" + CurrentBar, false, 0, Low[0], Brushes.Black);
+                Draw.Text(this, "LongInvalidPbMax_" + CurrentBar, "❌ LONG Phase 5 INVALID\nPullback in progress - waiting for entry\nPullback too large: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)", 0, Low[0] - (4 * TickSize), Brushes.Black);
 
                 currentStateLong = PatternState.DirectionSought;
                 ResetLongPattern();
@@ -1544,8 +1544,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 5 INVALIDATED: Too many closes below 34EMA of lows (" + consecutiveClosesBelow34EMALowLong + " > " + MaxClosesBeyond34EMA + ")");
 
                     // Draw marker and info box on chart
-                    Draw.Diamond(this, "LongInvalidP5ClosesMark_" + CurrentBar, false, 0, Low[0], Brushes.Red);
-                    Draw.Text(this, "LongInvalidP5Closes_" + CurrentBar, "❌ LONG Phase 5 INVALID\nPullback in progress - waiting for entry\nToo many consecutive closes below 34EMA\n(" + consecutiveClosesBelow34EMALowLong + " > max " + MaxClosesBeyond34EMA + ")", 0, Low[0] - (4 * TickSize), Brushes.Red);
+                    Draw.Diamond(this, "LongInvalidP5ClosesMark_" + CurrentBar, false, 0, Low[0], Brushes.Black);
+                    Draw.Text(this, "LongInvalidP5Closes_" + CurrentBar, "❌ LONG Phase 5 INVALID\nPullback in progress - waiting for entry\nToo many consecutive closes below 34EMA\n(" + consecutiveClosesBelow34EMALowLong + " > max " + MaxClosesBeyond34EMA + ")", 0, Low[0] - (4 * TickSize), Brushes.Black);
 
                     currentStateLong = PatternState.DirectionSought;
                     ResetLongPattern();
@@ -1564,8 +1564,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 5 INVALIDATED: 5SMA (" + smaIndicator[0].ToString("F2") + ") closed below 34EMA of lows (" + ema34Lows[0].ToString("F2") + ")");
 
                 // Draw marker and info box on chart
-                Draw.Diamond(this, "LongInvalidP5SMAMark_" + CurrentBar, false, 0, Low[0], Brushes.Red);
-                Draw.Text(this, "LongInvalidP5SMA_" + CurrentBar, "❌ LONG Phase 5 INVALID\nPullback in progress - waiting for entry\n5SMA crossed below 34EMA of lows\n5SMA: " + smaIndicator[0].ToString("F2") + " < EMA34: " + ema34Lows[0].ToString("F2"), 0, Low[0] - (4 * TickSize), Brushes.Red);
+                Draw.Diamond(this, "LongInvalidP5SMAMark_" + CurrentBar, false, 0, Low[0], Brushes.Black);
+                Draw.Text(this, "LongInvalidP5SMA_" + CurrentBar, "❌ LONG Phase 5 INVALID\nPullback in progress - waiting for entry\n5SMA crossed below 34EMA of lows\n5SMA: " + smaIndicator[0].ToString("F2") + " < EMA34: " + ema34Lows[0].ToString("F2"), 0, Low[0] - (4 * TickSize), Brushes.Black);
 
                 currentStateLong = PatternState.DirectionSought;
                 ResetLongPattern();
@@ -1643,7 +1643,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     int barsAgoH = CurrentBar - lowestHighLongBar;
                     int barsAgoPullback = CurrentBar - pullbackLowLongBar;
 
-                    AddDrawingObject("HLong_" + (labelCounter++), "H", barsAgoH, lowestHighLong, Brushes.Red);
+                    AddDrawingObject("HLong_" + (labelCounter++), "H", barsAgoH, lowestHighLong, Brushes.Black);
                     AddDrawingObject("PLong_" + (labelCounter++), "P", barsAgoPullback, pullbackLowLong, Brushes.Orange);
 
                     EnterLong("SlopeBreak Long");
