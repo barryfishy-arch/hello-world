@@ -103,6 +103,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private int highestLowShortBar = -1;
         private double highestPriceBeforeBreak = 0; // Highest price before breaking L downward
         private double lowestPriceBreakout = double.MaxValue; // Lowest during breakout (before pullback)
+        private double establishedUpswingSize = 0; // Upswing from REAL L to high - only changes with real swing updates
         private int lowestBreakoutBarShort = -1; // Bar where lowest was hit
         private int keyLevelBrokenBarShort = -1;
         private int pullbackBarShort = -1;
@@ -125,6 +126,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private int lowestHighLongBar = -1;
         private double lowestPriceBeforeBreak = double.MaxValue; // Lowest price before breaking H upward
         private double highestPriceBreakout = 0; // Highest during breakout (before pullback)
+        private double establishedDownswingSize = 0; // Downswing from REAL H to low - only changes with real swing updates
         private int highestBreakoutBarLong = -1; // Bar where highest was hit
         private int keyLevelBrokenBarLong = -1;
         private int pullbackBarLong = -1;
@@ -721,34 +723,35 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (High[0] > highestPriceBeforeBreak)
                 {
                     highestPriceBeforeBreak = High[0];
+                    // Calculate upswing from REAL L to this high
+                    establishedUpswingSize = highestPriceBeforeBreak - highestLowShort;
                 }
             }
 
             // Check if L is broken (close < L) - Phase 2 → Phase 3 transition
             if (highestLowShort > 0 && Close[0] < highestLowShort)
             {
-                // Check minimum breakout size
-                double upswingSize = highestPriceBeforeBreak - highestLowShort; // L to High (upswing in uptrend)
+                // Check minimum breakout size - use ESTABLISHED upswing from REAL L
                 double breakoutMove = highestPriceBeforeBreak - Close[0]; // High to close (breakdown)
-                double minBreakoutRequired = upswingSize * (MinBreakoutPercent / 100.0); // e.g., 120% of upswing
-                double breakoutPercent = (breakoutMove / upswingSize) * 100.0; // As % of upswing
+                double minBreakoutRequired = establishedUpswingSize * (MinBreakoutPercent / 100.0); // e.g., 120% of upswing
+                double breakoutPercent = (breakoutMove / establishedUpswingSize) * 100.0; // As % of upswing
 
                 if (breakoutMove < minBreakoutRequired)
                 {
                     // FAILED BREAK - too weak, update L to new low and continue tracking in Phase 2
                     Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT BREAK TOO WEAK: Breakout move " + breakoutMove.ToString("F2") + " (" + breakoutPercent.ToString("F1") + "% of upswing) < minimum " + minBreakoutRequired.ToString("F2") + " (" + MinBreakoutPercent + "%)");
-                    Print("   Upswing: " + highestLowShort.ToString("F2") + " (L) -> " + highestPriceBeforeBreak.ToString("F2") + " (high) = " + upswingSize.ToString("F2") + " points");
+                    Print("   Upswing (from REAL L): " + establishedUpswingSize.ToString("F2") + " points");
                     Print("   Breakout move: " + highestPriceBeforeBreak.ToString("F2") + " (high) -> " + Close[0].ToString("F2") + " (close) = " + breakoutMove.ToString("F2") + " points");
                     Print("   Updating L from " + highestLowShort.ToString("F2") + " to " + Low[0].ToString("F2") + " (continue tracking in Phase 2)");
                     highestLowShort = Low[0];
                     highestLowShortBar = CurrentBar;
-                    // Don't reset highestPriceBeforeBreak - keep tracking from the highest
+                    // Don't reset highestPriceBeforeBreak or establishedUpswingSize - they stay from REAL L
                     return;
                 }
 
                 // Minimum breakout size met - transition to Phase 3 (BreakoutBegun)
                 Print("🔴 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 2→3: L " + highestLowShort.ToString("F2") + " broken, minimum size met");
-                Print("   Upswing: " + highestLowShort.ToString("F2") + " (L) -> " + highestPriceBeforeBreak.ToString("F2") + " (high) = " + upswingSize.ToString("F2") + " points");
+                Print("   Upswing (from REAL L): " + establishedUpswingSize.ToString("F2") + " points");
                 Print("   Breakout move: " + highestPriceBeforeBreak.ToString("F2") + " (high) -> " + Close[0].ToString("F2") + " (close) = " + breakoutMove.ToString("F2") + " points (" + breakoutPercent.ToString("F1") + "%)");
                 Print("   → Moving to Phase 3: Waiting for close below 34EMA of lows to confirm");
 
@@ -1149,6 +1152,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             pullbackHighShortBar = -1;
             hasClosedAboveEMA34High = false;
             pullbackHighShortClose = 0;
+            establishedUpswingSize = 0;
 
             // Reset pullback start confirmation tracking
             shortClosedAbove5SMA = false;
@@ -1282,34 +1286,35 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (Low[0] < lowestPriceBeforeBreak)
                 {
                     lowestPriceBeforeBreak = Low[0];
+                    // Calculate downswing from REAL H to this low
+                    establishedDownswingSize = lowestHighLong - lowestPriceBeforeBreak;
                 }
             }
 
             // Check if H is broken (close > H) - Phase 2 → Phase 3 transition
             if (lowestHighLong > 0 && Close[0] > lowestHighLong)
             {
-                // Check minimum breakout size
-                double downswingSize = lowestHighLong - lowestPriceBeforeBreak; // H to low (downswing in downtrend)
+                // Check minimum breakout size - use ESTABLISHED downswing from REAL H
                 double breakoutMove = Close[0] - lowestPriceBeforeBreak; // Low to close (breakup)
-                double minBreakoutRequired = downswingSize * (MinBreakoutPercent / 100.0); // e.g., 120% of downswing
-                double breakoutPercent = (breakoutMove / downswingSize) * 100.0; // As % of downswing
+                double minBreakoutRequired = establishedDownswingSize * (MinBreakoutPercent / 100.0); // e.g., 120% of downswing
+                double breakoutPercent = (breakoutMove / establishedDownswingSize) * 100.0; // As % of downswing
 
                 if (breakoutMove < minBreakoutRequired)
                 {
                     // FAILED BREAK - too weak, update H to new high and continue tracking in Phase 2
                     Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG BREAK TOO WEAK: Breakout move " + breakoutMove.ToString("F2") + " (" + breakoutPercent.ToString("F1") + "% of downswing) < minimum " + minBreakoutRequired.ToString("F2") + " (" + MinBreakoutPercent + "%)");
-                    Print("   Downswing: " + lowestHighLong.ToString("F2") + " (H) -> " + lowestPriceBeforeBreak.ToString("F2") + " (low) = " + downswingSize.ToString("F2") + " points");
+                    Print("   Downswing (from REAL H): " + establishedDownswingSize.ToString("F2") + " points");
                     Print("   Breakout move: " + lowestPriceBeforeBreak.ToString("F2") + " (low) -> " + Close[0].ToString("F2") + " (close) = " + breakoutMove.ToString("F2") + " points");
                     Print("   Updating H from " + lowestHighLong.ToString("F2") + " to " + High[0].ToString("F2") + " (continue tracking in Phase 2)");
                     lowestHighLong = High[0];
                     lowestHighLongBar = CurrentBar;
-                    // Don't reset lowestPriceBeforeBreak - keep tracking from the lowest
+                    // Don't reset lowestPriceBeforeBreak or establishedDownswingSize - they stay from REAL H
                     return;
                 }
 
                 // Minimum breakout size met - transition to Phase 3 (BreakoutBegun)
                 Print("🔴 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 2→3: H " + lowestHighLong.ToString("F2") + " broken, minimum size met");
-                Print("   Downswing: " + lowestHighLong.ToString("F2") + " (H) -> " + lowestPriceBeforeBreak.ToString("F2") + " (low) = " + downswingSize.ToString("F2") + " points");
+                Print("   Downswing (from REAL H): " + establishedDownswingSize.ToString("F2") + " points");
                 Print("   Breakout move: " + lowestPriceBeforeBreak.ToString("F2") + " (low) -> " + Close[0].ToString("F2") + " (close) = " + breakoutMove.ToString("F2") + " points (" + breakoutPercent.ToString("F1") + "%)");
                 Print("   → Moving to Phase 3: Waiting for close above 34EMA of highs to confirm");
 
@@ -1710,6 +1715,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             pullbackLowLongBar = -1;
             hasClosedBelowEMA34Low = false;
             pullbackLowLongClose = 0;
+            establishedDownswingSize = 0;
 
             // Reset pullback start confirmation tracking
             longClosedBelow5SMA = false;
