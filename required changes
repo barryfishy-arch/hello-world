@@ -1,0 +1,25 @@
+Let's identify the events that change the phases and events that can occur during each phase and their result.
+Phase 1. 50sma is direction is sought and found to be up. Result - go to phase 2 - track highest low. for this setup the sma direction finder is now switched off as there will be no need for it anymore, change of sma direction will not invalidate a setup after this point. 
+however the sma direction finder can still look to see if the direction changes whereupon it will initiate looking for an opposite setup. yes, we can have the monitoring of 2 opposite setups going on at the same time.
+
+Phase 2 - tracking highest low, if we get a higher low, update the value.
+if:
+Sma changes direction - not relevant.
+Price makes lower low - if it meets the minimum size requirement for a break - we enter phase 3 - breakout. if not because doesn't meet the minimum size requirement - update the value for highest low. this will need to be checked and if necessary updated, on each bar close.
+
+So the logic is we are still in the uptrend until it breaks with a valid breakout. 
+
+phase 3 - breakout, confirm breakout has begun by closing below the 34ema of lows. 
+we check on each bar close to see breakout hasn't exceeded the maximum allowed size
+if price takes out the highest high before closing below the 34ea of lows, the breakout is invalid and is treated like a breakout that was too small - the "highest low" is adjusted.
+
+phase 4 - breakout has crossed 34ema, we are now waiting for end of breakout by waiting for beginning of pullback
+we still check on each bar close to see breakout hasn't exceeded the maximum allowed size.
+the end of the breakout is confirmed once price pulled back - closing above the 5sma and thereafter (or simultaneously) touching the 34ema of lows. at that point both the end of the breakout and the beginning of the pullback are confirmed
+
+phase 5 - pullback has begun - waiting for it to complete and trigger
+the pullbacks relationship to the 34ema of highs and the 34ema of lows has "bounce criteria" as laid out in the code.
+if price closes more than x (user defined) times above the 34ema of highs the entire setup is invalidated.
+if the 5sma closes above the 34ema of highs, the entire setup is invalidated.
+
+
