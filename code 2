@@ -221,7 +221,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 MaxBreakoutPercent = 3000; // Maximum ratio between last swing and breakout leg (%) - very high for testing
                 MinBreakoutPercent = 120; // Minimum breakout size as % of swing (default 120%)
                 MaxPullbackPercent = 50; // Maximum pullback size as % of breakout leg (default 50%)
-                MinPullbackPercent = 30; // Minimum pullback size as % of breakout leg (default 30%)
+                MinPullbackPercent = 35; // Minimum pullback size as % of breakout leg (default 35%)
                 BreakoutEndBufferPercent = 50; // Buffer around breakout end for invalidation (% of ATR, default 50%)
                 ATRBufferPercent = 30.0; // EMA34 bounce buffer (% of ATR)
                 MinBarsToTrigger = 1; // Min bars since extreme before entry
@@ -2003,7 +2003,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         [NinjaScriptProperty]
         [Range(0, 100)]
-        [Display(Name="Min Pullback Percent", Description="Minimum pullback size as % of breakout leg (default 30%)", Order=7, GroupName="Parameters")]
+        [Display(Name="Min Pullback Percent", Description="Minimum pullback size as % of breakout leg (default 35%)", Order=7, GroupName="Parameters")]
         public int MinPullbackPercent { get; set; }
 
         [NinjaScriptProperty]
