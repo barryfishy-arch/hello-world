@@ -910,7 +910,44 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             // Note: SMA50 direction change does NOT invalidate after L break is confirmed
 
-            // Phase 2: Wait for pullback - bar must TOUCH EMA34Low (Low <= EMA34Low <= High)
+            // Phase 4 INVALIDATION CHECK #1: Track consecutive closes above 34EMA of highs
+            if (Close[0] > ema34Highs[0])
+            {
+                consecutiveClosesAbove34EMAHighShort++;
+                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 4: Close above 34EMA of highs (" + consecutiveClosesAbove34EMAHighShort + "/" + MaxClosesBeyond34EMA + ")");
+
+                if (consecutiveClosesAbove34EMAHighShort > MaxClosesBeyond34EMA)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 4 INVALIDATED: Too many closes above 34EMA of highs (" + consecutiveClosesAbove34EMAHighShort + " > " + MaxClosesBeyond34EMA + ")");
+
+                    // Draw info box on chart
+                    Draw.Text(this, "ShortInvalidP4Closes_" + CurrentBar, "❌ SHORT P4\nToo many closes above 34EMA", 0, High[0] + (2 * TickSize), Brushes.Red);
+
+                    currentStateShort = PatternState.DirectionSought;
+                    ResetShortPattern();
+                    return;
+                }
+            }
+            else
+            {
+                // Reset counter if close is not above 34EMA of highs
+                consecutiveClosesAbove34EMAHighShort = 0;
+            }
+
+            // Phase 4 INVALIDATION CHECK #2: Check if 5SMA closes above 34EMA of highs
+            if (smaIndicator[0] > ema34Highs[0])
+            {
+                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 4 INVALIDATED: 5SMA (" + smaIndicator[0].ToString("F2") + ") closed above 34EMA of highs (" + ema34Highs[0].ToString("F2") + ")");
+
+                // Draw info box on chart
+                Draw.Text(this, "ShortInvalidP4SMA_" + CurrentBar, "❌ SHORT P4\n5SMA above 34EMA", 0, High[0] + (2 * TickSize), Brushes.Red);
+
+                currentStateShort = PatternState.DirectionSought;
+                ResetShortPattern();
+                return;
+            }
+
+            // Phase 4: Wait for pullback - bar must TOUCH EMA34Low (Low <= EMA34Low <= High)
             bool touchingEMA = (Low[0] <= ema34Lows[0]) && (High[0] >= ema34Lows[0]);
 
             if (touchingEMA)
@@ -1001,43 +1038,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            // Phase 5 INVALIDATION CHECK #1: Track consecutive closes above 34EMA of highs
-            if (Close[0] > ema34Highs[0])
-            {
-                consecutiveClosesAbove34EMAHighShort++;
-                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 5: Close above 34EMA of highs (" + consecutiveClosesAbove34EMAHighShort + "/" + MaxClosesBeyond34EMA + ")");
-
-                if (consecutiveClosesAbove34EMAHighShort > MaxClosesBeyond34EMA)
-                {
-                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 5 INVALIDATED: Too many closes above 34EMA of highs (" + consecutiveClosesAbove34EMAHighShort + " > " + MaxClosesBeyond34EMA + ")");
-
-                    // Draw info box on chart
-                    Draw.Text(this, "ShortInvalidP5Closes_" + CurrentBar, "❌ SHORT P5\nToo many closes above 34EMA", 0, High[0] + (2 * TickSize), Brushes.Red);
-
-                    currentStateShort = PatternState.DirectionSought;
-                    ResetShortPattern();
-                    return;
-                }
-            }
-            else
-            {
-                // Reset counter if close is not above 34EMA of highs
-                consecutiveClosesAbove34EMAHighShort = 0;
-            }
-
-            // Phase 5 INVALIDATION CHECK #2: Check if 5SMA closes above 34EMA of highs
-            if (smaIndicator[0] > ema34Highs[0])
-            {
-                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 5 INVALIDATED: 5SMA (" + smaIndicator[0].ToString("F2") + ") closed above 34EMA of highs (" + ema34Highs[0].ToString("F2") + ")");
-
-                // Draw info box on chart
-                Draw.Text(this, "ShortInvalidP5SMA_" + CurrentBar, "❌ SHORT P5\n5SMA above 34EMA", 0, High[0] + (2 * TickSize), Brushes.Red);
-
-                currentStateShort = PatternState.DirectionSought;
-                ResetShortPattern();
-                return;
-            }
-
+            // Note: Invalidation checks are now in Phase 4, after pullback starts but before EMA touch
             // Note: SMA50 direction change does NOT invalidate after L break is confirmed
 
             // Phase 5: Entry trigger - EMA34 bounce criteria
@@ -1458,6 +1459,43 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             // Note: SMA50 direction change does NOT invalidate after H break is confirmed
 
+            // Phase 4 INVALIDATION CHECK #1: Track consecutive closes below 34EMA of lows
+            if (Close[0] < ema34Lows[0])
+            {
+                consecutiveClosesBelow34EMALowLong++;
+                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 4: Close below 34EMA of lows (" + consecutiveClosesBelow34EMALowLong + "/" + MaxClosesBeyond34EMA + ")");
+
+                if (consecutiveClosesBelow34EMALowLong > MaxClosesBeyond34EMA)
+                {
+                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 4 INVALIDATED: Too many closes below 34EMA of lows (" + consecutiveClosesBelow34EMALowLong + " > " + MaxClosesBeyond34EMA + ")");
+
+                    // Draw info box on chart
+                    Draw.Text(this, "LongInvalidP4Closes_" + CurrentBar, "❌ LONG P4\nToo many closes below 34EMA", 0, Low[0] - (2 * TickSize), Brushes.Red);
+
+                    currentStateLong = PatternState.DirectionSought;
+                    ResetLongPattern();
+                    return;
+                }
+            }
+            else
+            {
+                // Reset counter if close is not below 34EMA of lows
+                consecutiveClosesBelow34EMALowLong = 0;
+            }
+
+            // Phase 4 INVALIDATION CHECK #2: Check if 5SMA closes below 34EMA of lows
+            if (smaIndicator[0] < ema34Lows[0])
+            {
+                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 4 INVALIDATED: 5SMA (" + smaIndicator[0].ToString("F2") + ") closed below 34EMA of lows (" + ema34Lows[0].ToString("F2") + ")");
+
+                // Draw info box on chart
+                Draw.Text(this, "LongInvalidP4SMA_" + CurrentBar, "❌ LONG P4\n5SMA below 34EMA", 0, Low[0] - (2 * TickSize), Brushes.Red);
+
+                currentStateLong = PatternState.DirectionSought;
+                ResetLongPattern();
+                return;
+            }
+
             // Phase 4: Wait for pullback - bar must TOUCH EMA34High (Low <= EMA34High <= High)
             bool touchingEMA = (Low[0] <= ema34Highs[0]) && (High[0] >= ema34Highs[0]);
 
@@ -1549,43 +1587,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            // Phase 5 INVALIDATION CHECK #1: Track consecutive closes below 34EMA of lows
-            if (Close[0] < ema34Lows[0])
-            {
-                consecutiveClosesBelow34EMALowLong++;
-                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 5: Close below 34EMA of lows (" + consecutiveClosesBelow34EMALowLong + "/" + MaxClosesBeyond34EMA + ")");
-
-                if (consecutiveClosesBelow34EMALowLong > MaxClosesBeyond34EMA)
-                {
-                    Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 5 INVALIDATED: Too many closes below 34EMA of lows (" + consecutiveClosesBelow34EMALowLong + " > " + MaxClosesBeyond34EMA + ")");
-
-                    // Draw info box on chart
-                    Draw.Text(this, "LongInvalidP5Closes_" + CurrentBar, "❌ LONG P5\nToo many closes below 34EMA", 0, Low[0] - (2 * TickSize), Brushes.Red);
-
-                    currentStateLong = PatternState.DirectionSought;
-                    ResetLongPattern();
-                    return;
-                }
-            }
-            else
-            {
-                // Reset counter if close is not below 34EMA of lows
-                consecutiveClosesBelow34EMALowLong = 0;
-            }
-
-            // Phase 5 INVALIDATION CHECK #2: Check if 5SMA closes below 34EMA of lows
-            if (smaIndicator[0] < ema34Lows[0])
-            {
-                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 5 INVALIDATED: 5SMA (" + smaIndicator[0].ToString("F2") + ") closed below 34EMA of lows (" + ema34Lows[0].ToString("F2") + ")");
-
-                // Draw info box on chart
-                Draw.Text(this, "LongInvalidP5SMA_" + CurrentBar, "❌ LONG P5\n5SMA below 34EMA", 0, Low[0] - (2 * TickSize), Brushes.Red);
-
-                currentStateLong = PatternState.DirectionSought;
-                ResetLongPattern();
-                return;
-            }
-
+            // Note: Invalidation checks are now in Phase 4, after pullback starts but before EMA touch
             // Note: SMA50 direction change does NOT invalidate after H break is confirmed
 
             // Phase 5: Entry trigger - EMA34 bounce criteria
