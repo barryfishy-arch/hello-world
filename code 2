@@ -926,6 +926,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (pullbackPercent > MaxPullbackPercent)
                 {
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT PULLBACK REJECTED: Pullback " + pullbackPercent.ToString("F1") + "% exceeds max " + MaxPullbackPercent + "%");
+
+                    // Draw marker and info box on chart
+                    Draw.Diamond(this, "ShortPbRejectMax_" + CurrentBar, false, 0, High[0], Brushes.Black);
+                    Draw.Text(this, "ShortPbRejectMaxTxt_" + CurrentBar, "❌ SHORT Phase 4 REJECT\nPullback touched 34EMA but too large\nPullback: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)", 0, High[0] + (4 * TickSize), Brushes.Black);
+
                     currentStateShort = PatternState.DirectionSought;
                     ResetShortPattern();
                     return;
@@ -934,6 +939,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (pullbackPercent < MinPullbackPercent)
                 {
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT PULLBACK REJECTED: Pullback " + pullbackPercent.ToString("F1") + "% below min " + MinPullbackPercent + "%");
+
+                    // Draw marker and info box on chart
+                    Draw.Diamond(this, "ShortPbRejectMin_" + CurrentBar, false, 0, High[0], Brushes.Black);
+                    Draw.Text(this, "ShortPbRejectMinTxt_" + CurrentBar, "❌ SHORT Phase 4 REJECT\nPullback touched 34EMA but too small\nPullback: " + pullbackPercent.ToString("F1") + "%\n(min: " + MinPullbackPercent + "%)", 0, High[0] + (4 * TickSize), Brushes.Black);
+
                     currentStateShort = PatternState.DirectionSought;
                     ResetShortPattern();
                     return;
@@ -944,6 +954,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (barsAgo < 0 || barsAgo >= CurrentBar)
                 {
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT PULLBACK REJECTED: Invalid bar index");
+
+                    // Draw marker and info box on chart
+                    Draw.Diamond(this, "ShortPbRejectIdx_" + CurrentBar, false, 0, High[0], Brushes.Black);
+                    Draw.Text(this, "ShortPbRejectIdxTxt_" + CurrentBar, "❌ SHORT Phase 4 REJECT\nPullback touched 34EMA\nInvalid bar index error", 0, High[0] + (4 * TickSize), Brushes.Black);
+
                     currentStateShort = PatternState.DirectionSought;
                     ResetShortPattern();
                     return;
@@ -953,6 +968,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (pullbackHighShortClose <= sma5AtPullbackHighBar)
                 {
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT PULLBACK REJECTED: Pullback high bar close " + pullbackHighShortClose.ToString("F5") + " NOT > 5SMA " + sma5AtPullbackHighBar.ToString("F5"));
+
+                    // Draw marker and info box on chart
+                    Draw.Diamond(this, "ShortPbRejectSMA_" + CurrentBar, false, 0, High[0], Brushes.Black);
+                    Draw.Text(this, "ShortPbRejectSMATxt_" + CurrentBar, "❌ SHORT Phase 4 REJECT\nPullback touched 34EMA\nPullback high bar close NOT > 5SMA\nClose: " + pullbackHighShortClose.ToString("F2") + " <= SMA: " + sma5AtPullbackHighBar.ToString("F2"), 0, High[0] + (4 * TickSize), Brushes.Black);
+
                     currentStateShort = PatternState.DirectionSought;
                     ResetShortPattern();
                     return;
@@ -1467,6 +1487,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (pullbackPercent > MaxPullbackPercent)
                 {
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG PULLBACK REJECTED: Pullback " + pullbackPercent.ToString("F1") + "% exceeds max " + MaxPullbackPercent + "%");
+
+                    // Draw marker and info box on chart
+                    Draw.Diamond(this, "LongPbRejectMax_" + CurrentBar, false, 0, Low[0], Brushes.Black);
+                    Draw.Text(this, "LongPbRejectMaxTxt_" + CurrentBar, "❌ LONG Phase 4 REJECT\nPullback touched 34EMA but too large\nPullback: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)", 0, Low[0] - (4 * TickSize), Brushes.Black);
+
                     currentStateLong = PatternState.DirectionSought;
                     ResetLongPattern();
                     return;
@@ -1475,6 +1500,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (pullbackPercent < MinPullbackPercent)
                 {
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG PULLBACK REJECTED: Pullback " + pullbackPercent.ToString("F1") + "% below min " + MinPullbackPercent + "%");
+
+                    // Draw marker and info box on chart
+                    Draw.Diamond(this, "LongPbRejectMin_" + CurrentBar, false, 0, Low[0], Brushes.Black);
+                    Draw.Text(this, "LongPbRejectMinTxt_" + CurrentBar, "❌ LONG Phase 4 REJECT\nPullback touched 34EMA but too small\nPullback: " + pullbackPercent.ToString("F1") + "%\n(min: " + MinPullbackPercent + "%)", 0, Low[0] - (4 * TickSize), Brushes.Black);
+
                     currentStateLong = PatternState.DirectionSought;
                     ResetLongPattern();
                     return;
@@ -1485,6 +1515,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (barsAgo < 0 || barsAgo >= CurrentBar)
                 {
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG PULLBACK REJECTED: Invalid bar index");
+
+                    // Draw marker and info box on chart
+                    Draw.Diamond(this, "LongPbRejectIdx_" + CurrentBar, false, 0, Low[0], Brushes.Black);
+                    Draw.Text(this, "LongPbRejectIdxTxt_" + CurrentBar, "❌ LONG Phase 4 REJECT\nPullback touched 34EMA\nInvalid bar index error", 0, Low[0] - (4 * TickSize), Brushes.Black);
+
                     currentStateLong = PatternState.DirectionSought;
                     ResetLongPattern();
                     return;
@@ -1494,6 +1529,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (pullbackLowLongClose >= sma5AtPullbackLowBar)
                 {
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG PULLBACK REJECTED: Pullback low bar close " + pullbackLowLongClose.ToString("F5") + " NOT < 5SMA " + sma5AtPullbackLowBar.ToString("F5"));
+
+                    // Draw marker and info box on chart
+                    Draw.Diamond(this, "LongPbRejectSMA_" + CurrentBar, false, 0, Low[0], Brushes.Black);
+                    Draw.Text(this, "LongPbRejectSMATxt_" + CurrentBar, "❌ LONG Phase 4 REJECT\nPullback touched 34EMA\nPullback low bar close NOT < 5SMA\nClose: " + pullbackLowLongClose.ToString("F2") + " >= SMA: " + sma5AtPullbackLowBar.ToString("F2"), 0, Low[0] - (4 * TickSize), Brushes.Black);
+
                     currentStateLong = PatternState.DirectionSought;
                     ResetLongPattern();
                     return;
