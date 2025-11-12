@@ -781,6 +781,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 3 INVALIDATED: Price took out highest high " + highestPriceBeforeBreak.ToString("F2") + " (reached " + High[0].ToString("F2") + ") before confirming below 34EMA");
                 Print("   → Treating as failed breakout, adjusting L and returning to Phase 2");
 
+                // Draw info box on chart
+                Draw.Text(this, "ShortInvalidP3_" + CurrentBar, "❌ SHORT P3\nPrice took out high", 0, High[0] + (2 * TickSize), Brushes.Red);
+
                 // Adjust L to the low of this breakout attempt and return to Phase 2
                 highestLowShort = lowestPriceBreakout;
                 highestLowShortBar = lowestBreakoutBarShort;
@@ -856,6 +859,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (breakoutSize <= 0)
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Invalid breakout size");
+
+                // Draw info box on chart
+                Draw.Text(this, "ShortInvalidSize_" + CurrentBar, "❌ SHORT\nInvalid breakout size", 0, High[0] + (2 * TickSize), Brushes.Red);
+
                 currentStateShort = PatternState.DirectionSought;
                 ResetShortPattern();
                 return;
@@ -868,6 +875,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Breakout ratio " + breakoutRatio.ToString("F1") + "% exceeds max " + MaxBreakoutPercent + "%");
                 Print("   Upswing: " + highestLowShort.ToString("F2") + " -> " + highestPriceBeforeBreak.ToString("F2") + " = " + upswingSize.ToString("F2") + " points");
                 Print("   Breakout: " + highestLowShort.ToString("F2") + " -> " + shortBreakoutEndPrice.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
+
+                // Draw info box on chart
+                Draw.Text(this, "ShortInvalidRatio_" + CurrentBar, "❌ SHORT\nBreakout too large", 0, High[0] + (2 * TickSize), Brushes.Red);
+
                 currentStateShort = PatternState.DirectionSought;
                 ResetShortPattern();
                 return;
@@ -888,6 +899,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (Close[0] < invalidationLevel)
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Close " + Close[0].ToString("F2") + " < breakout end - buffer " + invalidationLevel.ToString("F2") + " (pullback failed, price continued down)");
+
+                // Draw info box on chart
+                Draw.Text(this, "ShortInvalidCont_" + CurrentBar, "❌ SHORT\nPrice continued down", 0, High[0] + (2 * TickSize), Brushes.Red);
+
                 currentStateShort = PatternState.DirectionSought;
                 ResetShortPattern();
                 return;
@@ -977,6 +992,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (pullbackPercent > MaxPullbackPercent)
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Pullback grew to " + pullbackPercent.ToString("F1") + "% (exceeds max " + MaxPullbackPercent + "%)");
+
+                // Draw info box on chart
+                Draw.Text(this, "ShortInvalidPbMax_" + CurrentBar, "❌ SHORT\nPullback too large", 0, High[0] + (2 * TickSize), Brushes.Red);
+
                 currentStateShort = PatternState.DirectionSought;
                 ResetShortPattern();
                 return;
@@ -991,6 +1010,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (consecutiveClosesAbove34EMAHighShort > MaxClosesBeyond34EMA)
                 {
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 5 INVALIDATED: Too many closes above 34EMA of highs (" + consecutiveClosesAbove34EMAHighShort + " > " + MaxClosesBeyond34EMA + ")");
+
+                    // Draw info box on chart
+                    Draw.Text(this, "ShortInvalidP5Closes_" + CurrentBar, "❌ SHORT P5\nToo many closes above 34EMA", 0, High[0] + (2 * TickSize), Brushes.Red);
+
                     currentStateShort = PatternState.DirectionSought;
                     ResetShortPattern();
                     return;
@@ -1006,6 +1029,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (smaIndicator[0] > ema34Highs[0])
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 5 INVALIDATED: 5SMA (" + smaIndicator[0].ToString("F2") + ") closed above 34EMA of highs (" + ema34Highs[0].ToString("F2") + ")");
+
+                // Draw info box on chart
+                Draw.Text(this, "ShortInvalidP5SMA_" + CurrentBar, "❌ SHORT P5\n5SMA above 34EMA", 0, High[0] + (2 * TickSize), Brushes.Red);
+
                 currentStateShort = PatternState.DirectionSought;
                 ResetShortPattern();
                 return;
@@ -1302,6 +1329,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 3 INVALIDATED: Price took out lowest low " + lowestPriceBeforeBreak.ToString("F2") + " (reached " + Low[0].ToString("F2") + ") before confirming above 34EMA");
                 Print("   → Treating as failed breakout, adjusting H and returning to Phase 2");
 
+                // Draw info box on chart
+                Draw.Text(this, "LongInvalidP3_" + CurrentBar, "❌ LONG P3\nPrice took out low", 0, Low[0] - (2 * TickSize), Brushes.Red);
+
                 // Adjust H to the high of this breakout attempt and return to Phase 2
                 lowestHighLong = highestPriceBreakout;
                 lowestHighLongBar = highestBreakoutBarLong;
@@ -1377,6 +1407,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (breakoutSize <= 0)
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Invalid breakout size");
+
+                // Draw info box on chart
+                Draw.Text(this, "LongInvalidSize_" + CurrentBar, "❌ LONG\nInvalid breakout size", 0, Low[0] - (2 * TickSize), Brushes.Red);
+
                 currentStateLong = PatternState.DirectionSought;
                 ResetLongPattern();
                 return;
@@ -1389,6 +1423,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Breakout ratio " + breakoutRatio.ToString("F1") + "% exceeds max " + MaxBreakoutPercent + "%");
                 Print("   Downswing: " + lowestHighLong.ToString("F2") + " -> " + lowestPriceBeforeBreak.ToString("F2") + " = " + downswingSize.ToString("F2") + " points");
                 Print("   Breakout: " + lowestHighLong.ToString("F2") + " -> " + longBreakoutEndPrice.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
+
+                // Draw info box on chart
+                Draw.Text(this, "LongInvalidRatio_" + CurrentBar, "❌ LONG\nBreakout too large", 0, Low[0] - (2 * TickSize), Brushes.Red);
+
                 currentStateLong = PatternState.DirectionSought;
                 ResetLongPattern();
                 return;
@@ -1409,6 +1447,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (Close[0] > invalidationLevel)
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Close " + Close[0].ToString("F2") + " > breakout end + buffer " + invalidationLevel.ToString("F2") + " (pullback failed, price continued up)");
+
+                // Draw info box on chart
+                Draw.Text(this, "LongInvalidCont_" + CurrentBar, "❌ LONG\nPrice continued up", 0, Low[0] - (2 * TickSize), Brushes.Red);
+
                 currentStateLong = PatternState.DirectionSought;
                 ResetLongPattern();
                 return;
@@ -1498,6 +1540,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (pullbackPercent > MaxPullbackPercent)
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Pullback grew to " + pullbackPercent.ToString("F1") + "% (exceeds max " + MaxPullbackPercent + "%)");
+
+                // Draw info box on chart
+                Draw.Text(this, "LongInvalidPbMax_" + CurrentBar, "❌ LONG\nPullback too large", 0, Low[0] - (2 * TickSize), Brushes.Red);
+
                 currentStateLong = PatternState.DirectionSought;
                 ResetLongPattern();
                 return;
@@ -1512,6 +1558,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (consecutiveClosesBelow34EMALowLong > MaxClosesBeyond34EMA)
                 {
                     Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 5 INVALIDATED: Too many closes below 34EMA of lows (" + consecutiveClosesBelow34EMALowLong + " > " + MaxClosesBeyond34EMA + ")");
+
+                    // Draw info box on chart
+                    Draw.Text(this, "LongInvalidP5Closes_" + CurrentBar, "❌ LONG P5\nToo many closes below 34EMA", 0, Low[0] - (2 * TickSize), Brushes.Red);
+
                     currentStateLong = PatternState.DirectionSought;
                     ResetLongPattern();
                     return;
@@ -1527,6 +1577,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (smaIndicator[0] < ema34Lows[0])
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 5 INVALIDATED: 5SMA (" + smaIndicator[0].ToString("F2") + ") closed below 34EMA of lows (" + ema34Lows[0].ToString("F2") + ")");
+
+                // Draw info box on chart
+                Draw.Text(this, "LongInvalidP5SMA_" + CurrentBar, "❌ LONG P5\n5SMA below 34EMA", 0, Low[0] - (2 * TickSize), Brushes.Red);
+
                 currentStateLong = PatternState.DirectionSought;
                 ResetLongPattern();
                 return;
