@@ -895,22 +895,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 pullbackHighShortClose = Close[0];
             }
 
-            // STEP 4: Check for invalidation - close BELOW breakout end (pullback failed, continued down)
-            double atrBuffer = atrIndicator[0] * (BreakoutEndBufferPercent / 100.0);
-            double invalidationLevel = shortBreakoutEndPrice - atrBuffer;
-
-            if (Close[0] < invalidationLevel)
-            {
-                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Close " + Close[0].ToString("F2") + " < breakout end - buffer " + invalidationLevel.ToString("F2") + " (pullback failed, price continued down)");
-
-                // Draw marker and info box on chart
-                Draw.Diamond(this, "ShortInvalidContMark_" + CurrentBar, false, 0, Low[0], Brushes.Red);
-                Draw.Text(this, "ShortInvalidCont_" + CurrentBar, "❌ SHORT Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nPrice continued down past breakout end\nClose < " + invalidationLevel.ToString("F2") + " (end - buffer)", 0, High[0] + (4 * TickSize), Brushes.Red);
-
-                currentStateShort = PatternState.DirectionSought;
-                ResetShortPattern();
-                return;
-            }
+            // Note: Max breakout % check (earlier) handles cases where breakout runs too long
+            // No other invalidation needed in Phase 4 - just wait for pullback to begin
 
             // Note: SMA50 direction change does NOT invalidate after L break is confirmed
 
@@ -1450,22 +1436,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 pullbackLowLongClose = Close[0];
             }
 
-            // STEP 4: Check for invalidation - close ABOVE breakout end (pullback failed, continued up)
-            double atrBuffer = atrIndicator[0] * (BreakoutEndBufferPercent / 100.0);
-            double invalidationLevel = longBreakoutEndPrice + atrBuffer;
-
-            if (Close[0] > invalidationLevel)
-            {
-                Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Close " + Close[0].ToString("F2") + " > breakout end + buffer " + invalidationLevel.ToString("F2") + " (pullback failed, price continued up)");
-
-                // Draw marker and info box on chart
-                Draw.Diamond(this, "LongInvalidContMark_" + CurrentBar, false, 0, High[0], Brushes.Red);
-                Draw.Text(this, "LongInvalidCont_" + CurrentBar, "❌ LONG Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nPrice continued up past breakout end\nClose > " + invalidationLevel.ToString("F2") + " (end + buffer)", 0, Low[0] - (4 * TickSize), Brushes.Red);
-
-                currentStateLong = PatternState.DirectionSought;
-                ResetLongPattern();
-                return;
-            }
+            // Note: Max breakout % check (earlier) handles cases where breakout runs too long
+            // No other invalidation needed in Phase 4 - just wait for pullback to begin
 
             // Note: SMA50 direction change does NOT invalidate after H break is confirmed
 
