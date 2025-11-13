@@ -117,7 +117,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private bool sma5ClosedAbove34EMAHighShort = false; // Flag if 5SMA closes above 34EMA of highs
 
         // LONG pattern tracking (SMA50 turns DOWN, track lowest high H, break UP)
-        private double lowestHighLong = 0; // "H" - lowest high in downtrend (strongest resistance)
+        private double lowestHighLong = double.MaxValue; // "H" - lowest high in downtrend (strongest resistance)
         private int lowestHighLongBar = -1;
         private double lowestPriceBeforeBreak = double.MaxValue; // Lowest price before breaking H upward
         private double highestPriceBreakout = 0; // Highest during breakout (before pullback)
@@ -337,7 +337,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             // Priority: whichever has data (L or H) runs, the other is blocked
 
             bool shortHasData = (highestLowShort > 0);
-            bool longHasData = (lowestHighLong > 0);
+            bool longHasData = (lowestHighLong < double.MaxValue);
 
             if (shortHasData && longHasData)
             {
@@ -676,19 +676,20 @@ namespace NinjaTrader.NinjaScript.Strategies
                     return;
                 */
 
-                // Initialize tracking if not started
-                if (highestLowShort == 0 && lastSwingLow > 0)
-                {
-                    highestLowShort = lastSwingLow;
-                    highestLowShortBar = lastSwingLowBar;
-                    highestPriceBeforeBreak = 0;
-                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: Started tracking L (highest low) = " + highestLowShort.ToString("F2"));
-                }
-
                 // Update to HIGHER swing lows (highest low = strongest support)
+                // This also handles initialization when highestLowShort = 0
                 if (lastSwingLow > 0 && lastSwingLow > highestLowShort && lastSwingLowBar > highestLowShortBar)
                 {
-                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: L UPDATED from " + highestLowShort.ToString("F2") + " to " + lastSwingLow.ToString("F2") + " (higher low)");
+                    if (highestLowShort == 0)
+                    {
+                        // First swing - initialize tracking
+                        Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: Started tracking L (highest low) = " + lastSwingLow.ToString("F2"));
+                    }
+                    else
+                    {
+                        // Update to higher swing low
+                        Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: L UPDATED from " + highestLowShort.ToString("F2") + " to " + lastSwingLow.ToString("F2") + " (higher low)");
+                    }
                     highestLowShort = lastSwingLow;
                     highestLowShortBar = lastSwingLowBar;
                     // Reset highestPriceBeforeBreak - track only highs after the new L
@@ -1159,7 +1160,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private void TrackLowestHighLong()
         {
             // Check if SMA50 changed direction after we started tracking
-            bool smaChangedDirection = (lowestHighLong > 0 && !sma50SlopeDown);
+            bool smaChangedDirection = (lowestHighLong < double.MaxValue && !sma50SlopeDown);
 
             if (smaChangedDirection)
             {
@@ -1194,19 +1195,20 @@ namespace NinjaTrader.NinjaScript.Strategies
                     return;
                 */
 
-                // Initialize tracking if not started
-                if (lowestHighLong == 0 && lastSwingHigh > 0)
-                {
-                    lowestHighLong = lastSwingHigh;
-                    lowestHighLongBar = lastSwingHighBar;
-                    lowestPriceBeforeBreak = double.MaxValue;
-                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: Started tracking H (lowest high) = " + lowestHighLong.ToString("F2") + " | SHORT state: " + currentStateShort);
-                }
-
                 // Update to LOWER swing highs (lowest high = strongest resistance)
+                // This also handles initialization when lowestHighLong = double.MaxValue
                 if (lastSwingHigh > 0 && lastSwingHigh < lowestHighLong && lastSwingHighBar > lowestHighLongBar)
                 {
-                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: H UPDATED from " + lowestHighLong.ToString("F2") + " to " + lastSwingHigh.ToString("F2") + " (lower high)");
+                    if (lowestHighLong == double.MaxValue)
+                    {
+                        // First swing - initialize tracking
+                        Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: Started tracking H (lowest high) = " + lastSwingHigh.ToString("F2"));
+                    }
+                    else
+                    {
+                        // Update to lower swing high
+                        Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: H UPDATED from " + lowestHighLong.ToString("F2") + " to " + lastSwingHigh.ToString("F2") + " (lower high)");
+                    }
                     lowestHighLong = lastSwingHigh;
                     lowestHighLongBar = lastSwingHighBar;
                     // Reset lowestPriceBeforeBreak - track only lows after the new H
@@ -1226,7 +1228,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             // Check if H is broken (close > H) - Phase 2 → Phase 3 transition
-            if (lowestHighLong > 0 && Close[0] > lowestHighLong)
+            if (lowestHighLong < double.MaxValue && Close[0] > lowestHighLong)
             {
                 // Check minimum breakout size - use ESTABLISHED downswing from REAL H
                 double breakoutMove = Close[0] - lowestPriceBeforeBreak; // Low to close (breakup)
@@ -1609,7 +1611,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ResetLongPattern()
         {
-            lowestHighLong = 0;
+            lowestHighLong = double.MaxValue;
             lowestHighLongBar = -1;
             lowestPriceBeforeBreak = double.MaxValue;
             highestPriceBreakout = 0;
@@ -2035,4 +2037,4 @@ namespace NinjaTrader.NinjaScript.Strategies
         #endregion
     }
 }
-// 13th nov 18.54
+// 13th nov 22.47
