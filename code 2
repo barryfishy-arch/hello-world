@@ -823,13 +823,14 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             // Validate breakout ratio on every bar (using current lowestPriceBreakout)
+            double upswingSize = highestPriceBeforeBreak - highestLowShort;
             double breakoutSize = highestLowShort - lowestPriceBreakout;
-            double breakoutRatio = (breakoutSize / establishedUpswingSize) * 100.0;
+            double breakoutRatio = (breakoutSize / upswingSize) * 100.0;
 
             if (breakoutRatio > MaxBreakoutPercent)
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 4 INVALIDATED: Breakout ratio " + breakoutRatio.ToString("F1") + "% exceeds max " + MaxBreakoutPercent + "%");
-                Print("   Established Upswing: " + highestLowShort.ToString("F2") + " → " + highestPriceBeforeBreak.ToString("F2") + " = " + establishedUpswingSize.ToString("F2") + " points");
+                Print("   Established Upswing: " + highestLowShort.ToString("F2") + " → " + highestPriceBeforeBreak.ToString("F2") + " = " + upswingSize.ToString("F2") + " points");
                 Print("   Breakout: " + highestLowShort.ToString("F2") + " → " + lowestPriceBreakout.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
 
                 // Draw marker and info box on chart
@@ -1309,13 +1310,14 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             // Validate breakout ratio on every bar (using current highestPriceBreakout)
+            double downswingSize = lowestHighLong - lowestPriceBeforeBreak;
             double breakoutSize = highestPriceBreakout - lowestHighLong;
-            double breakoutRatio = (breakoutSize / establishedDownswingSize) * 100.0;
+            double breakoutRatio = (breakoutSize / downswingSize) * 100.0;
 
             if (breakoutRatio > MaxBreakoutPercent)
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 4 INVALIDATED: Breakout ratio " + breakoutRatio.ToString("F1") + "% exceeds max " + MaxBreakoutPercent + "%");
-                Print("   Established Downswing: " + lowestHighLong.ToString("F2") + " → " + lowestPriceBeforeBreak.ToString("F2") + " = " + establishedDownswingSize.ToString("F2") + " points");
+                Print("   Established Downswing: " + lowestHighLong.ToString("F2") + " → " + lowestPriceBeforeBreak.ToString("F2") + " = " + downswingSize.ToString("F2") + " points");
                 Print("   Breakout: " + lowestHighLong.ToString("F2") + " → " + highestPriceBreakout.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
 
                 // Draw marker and info box on chart
