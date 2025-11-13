@@ -1,0 +1,5 @@
+NinjaScript File,Error,Code,Line,Column,
+Strategy123_HLH_M3.cs,The name 'establishedUpswingSize' does not exist in the current context,CS0103,827,52,
+Strategy123_HLH_M3.cs,The name 'establishedUpswingSize' does not exist in the current context,CS0103,832,142,
+Strategy123_HLH_M3.cs,The name 'establishedDownswingSize' does not exist in the current context,CS0103,1313,52,
+Strategy123_HLH_M3.cs,The name 'establishedDownswingSize' does not exist in the current context,CS0103,1318,142,
