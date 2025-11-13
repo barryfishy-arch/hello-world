@@ -640,13 +640,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void TrackHighestLowShort()
         {
-            // Don't track if LONG pattern has any active data
-            if (lowestHighLong > 0)
-            {
-                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT BLOCKED: LONG pattern is active (H=" + lowestHighLong.ToString("F2") + ")");
-                return;
-            }
-
             // Check if SMA50 changed direction after we started tracking
             bool smaChangedDirection = (highestLowShort > 0 && !sma50SlopeUp);
 
@@ -1165,13 +1158,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void TrackLowestHighLong()
         {
-            // Don't track if SHORT pattern has any active data
-            if (highestLowShort > 0)
-            {
-                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG BLOCKED: SHORT pattern is active (L=" + highestLowShort.ToString("F2") + ")");
-                return;
-            }
-
             // Check if SMA50 changed direction after we started tracking
             bool smaChangedDirection = (lowestHighLong > 0 && !sma50SlopeDown);
 
@@ -2049,4 +2035,4 @@ namespace NinjaTrader.NinjaScript.Strategies
         #endregion
     }
 }
-// 13th nov 18.52
+// 13th nov 18.54
