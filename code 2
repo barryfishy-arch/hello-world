@@ -969,7 +969,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                     // Draw marker and info box on chart
                     Draw.Diamond(this, "ShortPbRejectMax_" + CurrentBar, false, 0, High[0], Brushes.Black);
-                    Draw.Text(this, "ShortPbRejectMaxTxt_" + CurrentBar, "❌ SHORT Phase 4 REJECT\nPullback touched 34EMA but too large\nPullback: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)", 0, High[0] + (4 * TickSize), Brushes.Black);
+                    Draw.Text(this, "ShortPbRejectMaxTxt_" + CurrentBar, "❌ SHORT Phase 4 REJECT\nPullback touched 34EMA but too large\nPullback: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)\n\nPrev Upswing: " + highestLowShort.ToString("F2") + " → " + highestPriceBeforeBreak.ToString("F2") + "\nBreakout: " + highestPriceBeforeBreak.ToString("F2") + " → " + lowestPriceBreakout.ToString("F2"), 0, High[0] + (4 * TickSize), Brushes.Black);
 
                     currentStateShort = PatternState.DirectionSought;
                     ResetShortPattern();
@@ -982,7 +982,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                     // Draw marker and info box on chart
                     Draw.Diamond(this, "ShortPbRejectMin_" + CurrentBar, false, 0, High[0], Brushes.Black);
-                    Draw.Text(this, "ShortPbRejectMinTxt_" + CurrentBar, "❌ SHORT Phase 4 REJECT\nPullback touched 34EMA but too small\nPullback: " + pullbackPercent.ToString("F1") + "%\n(min: " + MinPullbackPercent + "%)", 0, High[0] + (4 * TickSize), Brushes.Black);
+                    Draw.Text(this, "ShortPbRejectMinTxt_" + CurrentBar, "❌ SHORT Phase 4 REJECT\nPullback touched 34EMA but too small\nPullback: " + pullbackPercent.ToString("F1") + "%\n(min: " + MinPullbackPercent + "%)\n\nPrev Upswing: " + highestLowShort.ToString("F2") + " → " + highestPriceBeforeBreak.ToString("F2") + "\nBreakout: " + highestPriceBeforeBreak.ToString("F2") + " → " + lowestPriceBreakout.ToString("F2"), 0, High[0] + (4 * TickSize), Brushes.Black);
 
                     currentStateShort = PatternState.DirectionSought;
                     ResetShortPattern();
@@ -1045,7 +1045,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 // Draw marker and info box on chart
                 Draw.Diamond(this, "ShortInvalidPbMaxMark_" + CurrentBar, false, 0, High[0], Brushes.Black);
-                Draw.Text(this, "ShortInvalidPbMax_" + CurrentBar, "❌ SHORT Phase 5 INVALID\nPullback in progress - waiting for entry\nPullback too large: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)", 0, High[0] + (4 * TickSize), Brushes.Black);
+                Draw.Text(this, "ShortInvalidPbMax_" + CurrentBar, "❌ SHORT Phase 5 INVALID\nPullback in progress - waiting for entry\nPullback too large: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)\n\nPrev Upswing: " + highestLowShort.ToString("F2") + " → " + highestPriceBeforeBreak.ToString("F2") + "\nBreakout: " + highestPriceBeforeBreak.ToString("F2") + " → " + lowestPriceBreakout.ToString("F2"), 0, High[0] + (4 * TickSize), Brushes.Black);
 
                 currentStateShort = PatternState.DirectionSought;
                 ResetShortPattern();
@@ -1531,7 +1531,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                     // Draw marker and info box on chart
                     Draw.Diamond(this, "LongPbRejectMax_" + CurrentBar, false, 0, Low[0], Brushes.Black);
-                    Draw.Text(this, "LongPbRejectMaxTxt_" + CurrentBar, "❌ LONG Phase 4 REJECT\nPullback touched 34EMA but too large\nPullback: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)", 0, Low[0] - (4 * TickSize), Brushes.Black);
+                    Draw.Text(this, "LongPbRejectMaxTxt_" + CurrentBar, "❌ LONG Phase 4 REJECT\nPullback touched 34EMA but too large\nPullback: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)\n\nPrev Downswing: " + lowestHighLong.ToString("F2") + " → " + lowestPriceBeforeBreak.ToString("F2") + "\nBreakout: " + lowestPriceBeforeBreak.ToString("F2") + " → " + highestPriceBreakout.ToString("F2"), 0, Low[0] - (4 * TickSize), Brushes.Black);
 
                     currentStateLong = PatternState.DirectionSought;
                     ResetLongPattern();
@@ -1544,7 +1544,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                     // Draw marker and info box on chart
                     Draw.Diamond(this, "LongPbRejectMin_" + CurrentBar, false, 0, Low[0], Brushes.Black);
-                    Draw.Text(this, "LongPbRejectMinTxt_" + CurrentBar, "❌ LONG Phase 4 REJECT\nPullback touched 34EMA but too small\nPullback: " + pullbackPercent.ToString("F1") + "%\n(min: " + MinPullbackPercent + "%)", 0, Low[0] - (4 * TickSize), Brushes.Black);
+                    Draw.Text(this, "LongPbRejectMinTxt_" + CurrentBar, "❌ LONG Phase 4 REJECT\nPullback touched 34EMA but too small\nPullback: " + pullbackPercent.ToString("F1") + "%\n(min: " + MinPullbackPercent + "%)\n\nPrev Downswing: " + lowestHighLong.ToString("F2") + " → " + lowestPriceBeforeBreak.ToString("F2") + "\nBreakout: " + lowestPriceBeforeBreak.ToString("F2") + " → " + highestPriceBreakout.ToString("F2"), 0, Low[0] - (4 * TickSize), Brushes.Black);
 
                     currentStateLong = PatternState.DirectionSought;
                     ResetLongPattern();
@@ -1607,7 +1607,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 // Draw marker and info box on chart
                 Draw.Diamond(this, "LongInvalidPbMaxMark_" + CurrentBar, false, 0, Low[0], Brushes.Black);
-                Draw.Text(this, "LongInvalidPbMax_" + CurrentBar, "❌ LONG Phase 5 INVALID\nPullback in progress - waiting for entry\nPullback too large: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)", 0, Low[0] - (4 * TickSize), Brushes.Black);
+                Draw.Text(this, "LongInvalidPbMax_" + CurrentBar, "❌ LONG Phase 5 INVALID\nPullback in progress - waiting for entry\nPullback too large: " + pullbackPercent.ToString("F1") + "%\n(max: " + MaxPullbackPercent + "%)\n\nPrev Downswing: " + lowestHighLong.ToString("F2") + " → " + lowestPriceBeforeBreak.ToString("F2") + "\nBreakout: " + lowestPriceBeforeBreak.ToString("F2") + " → " + highestPriceBreakout.ToString("F2"), 0, Low[0] - (4 * TickSize), Brushes.Black);
 
                 currentStateLong = PatternState.DirectionSought;
                 ResetLongPattern();
