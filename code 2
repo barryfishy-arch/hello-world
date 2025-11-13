@@ -597,10 +597,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ProcessShortPattern()
         {
-            // CRITICAL: Don't process if LONG has any active data
-            if (lowestHighLong > 0)
-                return;
-
             switch (currentStateShort)
             {
                 case PatternState.DirectionSought:
@@ -1126,10 +1122,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ProcessLongPattern()
         {
-            // CRITICAL: Don't process if SHORT has any active data
-            if (highestLowShort > 0)
-                return;
-
             switch (currentStateLong)
             {
                 case PatternState.DirectionSought:
@@ -2057,4 +2049,4 @@ namespace NinjaTrader.NinjaScript.Strategies
         #endregion
     }
 }
-// 13th nov 18.50
+// 13th nov 18.52
