@@ -112,17 +112,15 @@ namespace NinjaTrader.NinjaScript.Strategies
         private bool hasClosedAboveEMA34High = false; // Track if we've had 1 close above EMA34High
         private double pullbackHighShortClose = 0; // Close price of the bar that made pullback high
 
-        // Pullback start confirmation tracking (SHORT)
-        private bool shortClosedAbove5SMA = false; // Has closed above 5SMA since break
-        private bool shortSwingLowConfirmed = false; // Has swing indicator confirmed the breakout low
-        private double shortBreakoutEndPrice = 0; // Confirmed end of breakout (swing low price)
+        // Pattern start tracking (SHORT) - bar where pattern entered TrackingKeyLevel
+        private int shortPatternStartBar = -1;
 
         // Phase 5 invalidation tracking (SHORT)
         private int consecutiveClosesAbove34EMAHighShort = 0; // Counter for closes above 34EMA of highs
         private bool sma5ClosedAbove34EMAHighShort = false; // Flag if 5SMA closes above 34EMA of highs
 
         // LONG pattern tracking (SMA50 turns DOWN, track lowest high H, break UP)
-        private double lowestHighLong = 0; // "H" - lowest high in downtrend (strongest resistance)
+        private double lowestHighLong = double.MaxValue; // "H" - lowest high in downtrend (strongest resistance)
         private int lowestHighLongBar = -1;
         private double lowestPriceBeforeBreak = double.MaxValue; // Lowest price before breaking H upward
         private double highestPriceBreakout = 0; // Highest during breakout (before pullback)
@@ -135,10 +133,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         private bool hasClosedBelowEMA34Low = false; // Track if we've had 1 close below EMA34Low
         private double pullbackLowLongClose = 0; // Close price of the bar that made pullback low
 
-        // Pullback start confirmation tracking (LONG)
-        private bool longClosedBelow5SMA = false; // Has closed below 5SMA since break
-        private bool longSwingHighConfirmed = false; // Has swing indicator confirmed the breakout high
-        private double longBreakoutEndPrice = 0; // Confirmed end of breakout (swing high price)
+        // Pattern start tracking (LONG) - bar where pattern entered TrackingKeyLevel
+        private int longPatternStartBar = -1;
 
         // Phase 5 invalidation tracking (LONG)
         private int consecutiveClosesBelow34EMALowLong = 0; // Counter for closes below 34EMA of lows
@@ -347,7 +343,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             // Priority: whichever has data (L or H) runs, the other is blocked
 
             bool shortHasData = (highestLowShort > 0);
-            bool longHasData = (lowestHighLong > 0);
+            bool longHasData = (lowestHighLong < double.MaxValue);
 
             if (shortHasData && longHasData)
             {
@@ -607,10 +603,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ProcessShortPattern()
         {
-            // CRITICAL: Don't process if LONG has any active data
-            if (lowestHighLong > 0)
-                return;
-
             switch (currentStateShort)
             {
                 case PatternState.DirectionSought:
@@ -642,6 +634,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 Print("🔵 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT Phase 1: SMA50 direction UP confirmed - moving to Phase 2 (TrackingKeyLevel)");
                 currentStateShort = PatternState.TrackingKeyLevel;
+                shortPatternStartBar = CurrentBar; // Track when pattern started
             }
 
             // Continuously check for opposite direction to initiate LONG setup in parallel
@@ -649,18 +642,12 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 Print("🔵 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG Phase 1: SMA50 direction DOWN confirmed - moving to Phase 2 (TrackingKeyLevel)");
                 currentStateLong = PatternState.TrackingKeyLevel;
+                longPatternStartBar = CurrentBar; // Track when pattern started
             }
         }
 
         private void TrackHighestLowShort()
         {
-            // Don't track if LONG pattern has any active data
-            if (lowestHighLong > 0)
-            {
-                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT BLOCKED: LONG pattern is active (H=" + lowestHighLong.ToString("F2") + ")");
-                return;
-            }
-
             // Check if SMA50 changed direction after we started tracking
             bool smaChangedDirection = (highestLowShort > 0 && !sma50SlopeUp);
 
@@ -697,19 +684,21 @@ namespace NinjaTrader.NinjaScript.Strategies
                     return;
                 */
 
-                // Initialize tracking if not started
-                if (highestLowShort == 0 && lastSwingLow > 0)
-                {
-                    highestLowShort = lastSwingLow;
-                    highestLowShortBar = lastSwingLowBar;
-                    highestPriceBeforeBreak = 0;
-                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: Started tracking L (highest low) = " + highestLowShort.ToString("F2"));
-                }
-
                 // Update to HIGHER swing lows (highest low = strongest support)
-                if (lastSwingLow > 0 && lastSwingLow > highestLowShort && lastSwingLowBar > highestLowShortBar)
+                // This also handles initialization when highestLowShort = 0
+                // CRITICAL: Only accept swings that occurred AFTER pattern started to avoid stale data
+                if (lastSwingLow > 0 && lastSwingLow > highestLowShort && lastSwingLowBar > highestLowShortBar && lastSwingLowBar >= shortPatternStartBar)
                 {
-                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: L UPDATED from " + highestLowShort.ToString("F2") + " to " + lastSwingLow.ToString("F2") + " (higher low)");
+                    if (highestLowShort == 0)
+                    {
+                        // First swing - initialize tracking
+                        Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: Started tracking L (highest low) = " + lastSwingLow.ToString("F2"));
+                    }
+                    else
+                    {
+                        // Update to higher swing low
+                        Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: L UPDATED from " + highestLowShort.ToString("F2") + " to " + lastSwingLow.ToString("F2") + " (higher low)");
+                    }
                     highestLowShort = lastSwingLow;
                     highestLowShortBar = lastSwingLowBar;
                     // Reset highestPriceBeforeBreak - track only highs after the new L
@@ -828,36 +817,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 pullbackHighShortClose = 0;
             }
 
-            // STEP 1: Check for close ABOVE 5SMA (pullback start condition #1)
-            if (!shortClosedAbove5SMA && Close[0] > smaIndicator[0])
-            {
-                shortClosedAbove5SMA = true;
-                Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: Close ABOVE 5SMA confirmed (" + Close[0].ToString("F2") + " > " + smaIndicator[0].ToString("F2") + ")");
-            }
-
-            // STEP 2: Check for swing low confirmation (pullback start condition #2)
-            if (!shortSwingLowConfirmed && lastSwingLow > 0 && lastSwingLowBar >= lowestBreakoutBarShort)
-            {
-                // Swing indicator confirmed a low at or after the breakout
-                shortSwingLowConfirmed = true;
-                shortBreakoutEndPrice = lastSwingLow; // This is the confirmed end of breakout
-                Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: Swing LOW confirmed at " + shortBreakoutEndPrice.ToString("F2") + " (breakout end)");
-            }
-
-            // STEP 3: Check if BOTH conditions are met = pullback start confirmed
-            bool pullbackStartConfirmed = shortClosedAbove5SMA && shortSwingLowConfirmed;
-
-            if (!pullbackStartConfirmed)
-            {
-                // Still waiting for pullback to start
-                return;
-            }
-
-            // Pullback has started - now track pullback extreme and check for invalidation
-            Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT: PULLBACK START CONFIRMED (both conditions met)");
-
-            // Validate maximum breakout size (now that breakout end is confirmed)
-            double breakoutSize = highestPriceBeforeBreak - shortBreakoutEndPrice; // From high before break down to breakout end
+            // Validate breakout size every bar (using dynamic lowest price)
+            double breakoutSize = highestPriceBeforeBreak - lowestPriceBreakout; // From high before break down to current lowest
 
             if (breakoutSize <= 0)
             {
@@ -878,11 +839,11 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " SHORT INVALIDATED: Breakout ratio " + breakoutRatio.ToString("F1") + "% exceeds max " + MaxBreakoutPercent + "%");
                 Print("   Upswing (from REAL L): " + establishedUpswingSize.ToString("F2") + " points");
-                Print("   Breakout: " + highestPriceBeforeBreak.ToString("F2") + " -> " + shortBreakoutEndPrice.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
+                Print("   Breakout: " + highestPriceBeforeBreak.ToString("F2") + " -> " + lowestPriceBreakout.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
 
                 // Draw marker and info box on chart
                 Draw.Diamond(this, "ShortInvalidRatioMark_" + CurrentBar, false, 0, High[0], Brushes.Black);
-                Draw.Text(this, "ShortInvalidRatio_" + CurrentBar, "❌ SHORT Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nBreakout too large: " + breakoutRatio.ToString("F1") + "%\n(max: " + MaxBreakoutPercent + "%)\n\nUpswing: " + highestLowShort.ToString("F2") + " → " + highestPriceBeforeBreak.ToString("F2") + "\nBreakout: " + highestPriceBeforeBreak.ToString("F2") + " → " + shortBreakoutEndPrice.ToString("F2"), 0, High[0] + (4 * TickSize), Brushes.Black);
+                Draw.Text(this, "ShortInvalidRatio_" + CurrentBar, "❌ SHORT Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nBreakout too large: " + breakoutRatio.ToString("F1") + "%\n(max: " + MaxBreakoutPercent + "%)\n\nUpswing: " + highestLowShort.ToString("F2") + " → " + highestPriceBeforeBreak.ToString("F2") + "\nBreakout: " + highestPriceBeforeBreak.ToString("F2") + " → " + lowestPriceBreakout.ToString("F2"), 0, High[0] + (4 * TickSize), Brushes.Black);
 
                 currentStateShort = PatternState.DirectionSought;
                 ResetShortPattern();
@@ -1153,10 +1114,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             pullbackHighShortClose = 0;
             establishedUpswingSize = 0;
 
-            // Reset pullback start confirmation tracking
-            shortClosedAbove5SMA = false;
-            shortSwingLowConfirmed = false;
-            shortBreakoutEndPrice = 0;
+            // Reset pattern start tracking
+            shortPatternStartBar = -1;
 
             // Reset Phase 5 invalidation counters
             consecutiveClosesAbove34EMAHighShort = 0;
@@ -1169,10 +1128,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ProcessLongPattern()
         {
-            // CRITICAL: Don't process if SHORT has any active data
-            if (highestLowShort > 0)
-                return;
-
             switch (currentStateLong)
             {
                 case PatternState.DirectionSought:
@@ -1216,15 +1171,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void TrackLowestHighLong()
         {
-            // Don't track if SHORT pattern has any active data
-            if (highestLowShort > 0)
-            {
-                Print("⚠️ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG BLOCKED: SHORT pattern is active (L=" + highestLowShort.ToString("F2") + ")");
-                return;
-            }
-
             // Check if SMA50 changed direction after we started tracking
-            bool smaChangedDirection = (lowestHighLong > 0 && !sma50SlopeDown);
+            bool smaChangedDirection = (lowestHighLong < double.MaxValue && !sma50SlopeDown);
 
             if (smaChangedDirection)
             {
@@ -1259,19 +1207,21 @@ namespace NinjaTrader.NinjaScript.Strategies
                     return;
                 */
 
-                // Initialize tracking if not started
-                if (lowestHighLong == 0 && lastSwingHigh > 0)
-                {
-                    lowestHighLong = lastSwingHigh;
-                    lowestHighLongBar = lastSwingHighBar;
-                    lowestPriceBeforeBreak = double.MaxValue;
-                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: Started tracking H (lowest high) = " + lowestHighLong.ToString("F2") + " | SHORT state: " + currentStateShort);
-                }
-
                 // Update to LOWER swing highs (lowest high = strongest resistance)
-                if (lastSwingHigh > 0 && lastSwingHigh < lowestHighLong && lastSwingHighBar > lowestHighLongBar)
+                // This also handles initialization when lowestHighLong = double.MaxValue
+                // CRITICAL: Only accept swings that occurred AFTER pattern started to avoid stale data
+                if (lastSwingHigh > 0 && lastSwingHigh < lowestHighLong && lastSwingHighBar > lowestHighLongBar && lastSwingHighBar >= longPatternStartBar)
                 {
-                    Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: H UPDATED from " + lowestHighLong.ToString("F2") + " to " + lastSwingHigh.ToString("F2") + " (lower high)");
+                    if (lowestHighLong == double.MaxValue)
+                    {
+                        // First swing - initialize tracking
+                        Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: Started tracking H (lowest high) = " + lastSwingHigh.ToString("F2"));
+                    }
+                    else
+                    {
+                        // Update to lower swing high
+                        Print("📍 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: H UPDATED from " + lowestHighLong.ToString("F2") + " to " + lastSwingHigh.ToString("F2") + " (lower high)");
+                    }
                     lowestHighLong = lastSwingHigh;
                     lowestHighLongBar = lastSwingHighBar;
                     // Reset lowestPriceBeforeBreak - track only lows after the new H
@@ -1291,7 +1241,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             // Check if H is broken (close > H) - Phase 2 → Phase 3 transition
-            if (lowestHighLong > 0 && Close[0] > lowestHighLong)
+            if (lowestHighLong < double.MaxValue && Close[0] > lowestHighLong)
             {
                 // Check minimum breakout size - use ESTABLISHED downswing from REAL H
                 double breakoutMove = Close[0] - lowestPriceBeforeBreak; // Low to close (breakup)
@@ -1390,36 +1340,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 pullbackLowLongClose = 0;
             }
 
-            // STEP 1: Check for close BELOW 5SMA (pullback start condition #1)
-            if (!longClosedBelow5SMA && Close[0] < smaIndicator[0])
-            {
-                longClosedBelow5SMA = true;
-                Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: Close BELOW 5SMA confirmed (" + Close[0].ToString("F2") + " < " + smaIndicator[0].ToString("F2") + ")");
-            }
-
-            // STEP 2: Check for swing high confirmation (pullback start condition #2)
-            if (!longSwingHighConfirmed && lastSwingHigh > 0 && lastSwingHighBar >= highestBreakoutBarLong)
-            {
-                // Swing indicator confirmed a high at or after the breakout
-                longSwingHighConfirmed = true;
-                longBreakoutEndPrice = lastSwingHigh; // This is the confirmed end of breakout
-                Print("✓ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: Swing HIGH confirmed at " + longBreakoutEndPrice.ToString("F2") + " (breakout end)");
-            }
-
-            // STEP 3: Check if BOTH conditions are met = pullback start confirmed
-            bool pullbackStartConfirmed = longClosedBelow5SMA && longSwingHighConfirmed;
-
-            if (!pullbackStartConfirmed)
-            {
-                // Still waiting for pullback to start
-                return;
-            }
-
-            // Pullback has started - now track pullback extreme and check for invalidation
-            Print("🟢 " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG: PULLBACK START CONFIRMED (both conditions met)");
-
-            // Validate maximum breakout size (now that breakout end is confirmed)
-            double breakoutSize = longBreakoutEndPrice - lowestPriceBeforeBreak; // From low before break up to breakout end
+            // Validate breakout size every bar (using dynamic highest price)
+            double breakoutSize = highestPriceBreakout - lowestPriceBeforeBreak; // From low before break up to current highest
 
             if (breakoutSize <= 0)
             {
@@ -1440,11 +1362,11 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 Print("❌ " + Time[0].ToString("yyyy-MM-dd HH:mm:ss") + " LONG INVALIDATED: Breakout ratio " + breakoutRatio.ToString("F1") + "% exceeds max " + MaxBreakoutPercent + "%");
                 Print("   Downswing (from REAL H): " + establishedDownswingSize.ToString("F2") + " points");
-                Print("   Breakout: " + lowestPriceBeforeBreak.ToString("F2") + " -> " + longBreakoutEndPrice.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
+                Print("   Breakout: " + lowestPriceBeforeBreak.ToString("F2") + " -> " + highestPriceBreakout.ToString("F2") + " = " + breakoutSize.ToString("F2") + " points");
 
                 // Draw marker and info box on chart
                 Draw.Diamond(this, "LongInvalidRatioMark_" + CurrentBar, false, 0, Low[0], Brushes.Black);
-                Draw.Text(this, "LongInvalidRatio_" + CurrentBar, "❌ LONG Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nBreakout too large: " + breakoutRatio.ToString("F1") + "%\n(max: " + MaxBreakoutPercent + "%)\n\nDownswing: " + lowestHighLong.ToString("F2") + " → " + lowestPriceBeforeBreak.ToString("F2") + "\nBreakout: " + lowestPriceBeforeBreak.ToString("F2") + " → " + longBreakoutEndPrice.ToString("F2"), 0, Low[0] - (4 * TickSize), Brushes.Black);
+                Draw.Text(this, "LongInvalidRatio_" + CurrentBar, "❌ LONG Phase 4 INVALID\nBreakout confirmed - waiting for pullback\nBreakout too large: " + breakoutRatio.ToString("F1") + "%\n(max: " + MaxBreakoutPercent + "%)\n\nDownswing: " + lowestHighLong.ToString("F2") + " → " + lowestPriceBeforeBreak.ToString("F2") + "\nBreakout: " + lowestPriceBeforeBreak.ToString("F2") + " → " + highestPriceBreakout.ToString("F2"), 0, Low[0] - (4 * TickSize), Brushes.Black);
 
                 currentStateLong = PatternState.DirectionSought;
                 ResetLongPattern();
@@ -1702,7 +1624,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ResetLongPattern()
         {
-            lowestHighLong = 0;
+            lowestHighLong = double.MaxValue;
             lowestHighLongBar = -1;
             lowestPriceBeforeBreak = double.MaxValue;
             highestPriceBreakout = 0;
@@ -1715,10 +1637,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             pullbackLowLongClose = 0;
             establishedDownswingSize = 0;
 
-            // Reset pullback start confirmation tracking
-            longClosedBelow5SMA = false;
-            longSwingHighConfirmed = false;
-            longBreakoutEndPrice = 0;
+            // Reset pattern start tracking
+            longPatternStartBar = -1;
 
             // Reset Phase 5 invalidation counters
             consecutiveClosesBelow34EMALowLong = 0;
@@ -2133,4 +2053,4 @@ namespace NinjaTrader.NinjaScript.Strategies
         #endregion
     }
 }
-// 13th nov 18.47
+// 13th nov 22.56
